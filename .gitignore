@@ -6,4 +6,5 @@ project/target
 project/target/**
 project/project
 project/project/**
+log/**
 
