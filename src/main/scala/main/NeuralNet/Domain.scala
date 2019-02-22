@@ -1,7 +1,5 @@
 package main.NeuralNet
 
-import java.lang.StackWalker
-
 import akka.event.LoggingAdapter
 import main.data.Data
 
@@ -49,20 +47,22 @@ class Network(var weights: Seq[Edge], var lRate: Double)(implicit loggerr: Optio
     this.weights = updatedWeights(input, target)
   }
 
-  def train(data: Data): Unit = {
+  def train(data: Data, minimumImprovementThreshold: Double): Unit = {
     var mse = getMSE(data)
     var previous = -1.0
     var counter = 0
-    while (previous == -1.0 || previous < mse || ((previous - mse) / previous) > 0.000001) {
+    var improvement = ((previous - mse) / previous)
+    while (counter == 0 || improvement > minimumImprovementThreshold) {
       counter += 1
       data.data.foreach(d => learningStep(d.target, d.features))
       previous = mse
       mse = getMSE(data)
       debug(s"Iteration ${counter}")
+      improvement = ((previous - mse) / previous)
       if (previous < mse) {
         info("It got worse")
       } else {
-        info(s"Improvement: ${((previous - mse) / previous)}")
+        info(s"Improvement: ${improvement}")
       }
       if (counter > 1000) {
         throw new RuntimeException("Exceeded number of iterations")
@@ -83,7 +83,6 @@ class Network(var weights: Seq[Edge], var lRate: Double)(implicit loggerr: Optio
       val prediction = predict(e.features)
       (e.target - prediction) * (e.target - prediction)
     }).sum / data.data.length
-    debug(s"MSE ${mse}")
     mse
   }
 }
@@ -153,6 +152,7 @@ case class Sum() extends Function {
   override def derivative(out: Double): Double = 1
   override def getValue(input: Seq[(Double, Double)]): Double = input.map(i=> i._1 * i._2).sum
 }
+case class Input() extends Sum{} //Naming to make it clear. The value of an input is taken differently, derivative is always 1
 
 case class Sigma() extends Function {
   override def derivative(out: Double): Double = out* (1 - out)

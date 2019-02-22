@@ -43,12 +43,15 @@ object GradientSearchExample {
       Edge(nodes.apply(4), nodes.apply(6), Math.random()),
       Edge(nodes.apply(5), nodes.apply(6), Math.random())
     )
-    val net: Network = new Network(weights, 1)
+    val net: Network = new Network(weights, 0.01)
     val randomMeanSquareError = net.getMSE(data)
-    net.train(data)
+    net.train(data, 0.01)
     val meanSquareError = net.getMSE(data)
-    println("meanSquareError: ", meanSquareError)
-    println("improvement: ", (randomMeanSquareError - meanSquareError) / randomMeanSquareError, " parts better than random")
+    logger.get.info(s"meanSquareError:  ${meanSquareError}")
+    logger.get.info(s"improvement: ${(randomMeanSquareError - meanSquareError) / randomMeanSquareError} parts better than random")
   }
 
 }
+
+
+

@@ -55,6 +55,9 @@ object ExampleData {
 case class ExampleData(seed: Double, factors: Integer, sampleSize: Integer) extends Data {
   val data: Seq[DataPoint] = ExampleData.make(seed, factors, sampleSize)
 }
+case class SplitData(split: Seq[DataPoint]) extends Data {
+  override val data: Seq[DataPoint] = split
+}
 case class DataPoint(target: Double, features: Seq[Double])
 sealed trait Data{
   val data: Seq[DataPoint]
