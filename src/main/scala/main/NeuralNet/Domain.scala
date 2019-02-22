@@ -33,6 +33,7 @@ trait Logging {
 class Network(var weights: Seq[Edge], var lRate: Double)(implicit loggerr: Option[LoggingAdapter]) extends Logging {
   override val logger: Option[LoggingAdapter] = loggerr
   def predict(input: Seq[Double]): Double = {
+    weights.foreach(_.prepare())
     val out: Option[Node] = weights.find(_.to.id == -1).map(_.to)//'out' has id -1
     if (out.isDefined) {
       out.get.getOut(input, weights)
@@ -69,10 +70,10 @@ class Network(var weights: Seq[Edge], var lRate: Double)(implicit loggerr: Optio
     }
   }
 
-  def updatedWeights(input:Seq[Double], target: Double): Seq[Edge] = {
+  private def updatedWeights(input:Seq[Double], target: Double): Seq[Edge] = {
     weights.map(e => {
       val delta = e.from.getOut(input, weights) * e.to.deltaE(weights, input, target)
-      val newWeight = e.weight - lRate * delta
+      val newWeight = e.weight + lRate * delta
       Edge(e.from, e.to, newWeight)
     })
   }

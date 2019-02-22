@@ -29,7 +29,7 @@ class FetchActor  extends Actor with ActorLogging{
 
   def fetchExample(ref: ActorRef): Unit = {
     log.debug("fetch Example")
-    val data = ExampleData(Math.random() * 10, 4, 100)
+    val data = ExampleData(Math.random() * 10, 3, 100)
     ref ! Fit(data)
   }
 
@@ -39,16 +39,16 @@ class FetchActor  extends Actor with ActorLogging{
 object ExampleData {
   def make(seed: Double, factors: Integer, sampleSize: Integer): Seq[DataPoint] = {
     def getXs(): Seq[Double] = {
-      for (i <- 1 until factors) yield seed * Math.random()
+      for (i <- 0 until factors) yield seed * Math.random()
     }
     def getPoint(ws:Seq[Double]): DataPoint = {
       val xs = getXs()
-      val y =  xs.zipAll(ws,0.0,0.0).map((a:(Double,Double)) =>a._1+a._2).foldLeft(0.0)(_ + _)
+      val y =  xs.zipAll(ws,0.0,0.0).map((a:(Double,Double)) =>a._1*a._2).foldLeft(0.0)(_ + _)
       DataPoint(y, xs)
     }
-    val weights = for (i <- 1 until factors)
+    val weights = for (i <- 0 until factors)
       yield Math.random()
-    for (j <- 1 until sampleSize)
+    for (j <- 0 until sampleSize)
       yield getPoint(weights)
   }
 }

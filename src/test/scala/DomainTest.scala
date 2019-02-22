@@ -111,13 +111,13 @@ class DomainTest extends FlatSpec with Matchers {
     val w4Expec = 0.4 - lRate * dw4
     val w5Expec = 0.5 - lRate * dw5
     val w6Expec = 0.6 - lRate * dw6
-    val actual = net.updatedWeights( Seq(0.05, 0.1), 1)
-    val w1Actual = actual.find((x)=>x.from.id.equals(0) && x.to.id.equals(2)).get.weight
-    val w2Actual = actual.find((x)=>x.from.id.equals(0) && x.to.id.equals(3)).get.weight
-    val w3Actual = actual.find((x)=>x.from.id.equals(1) && x.to.id.equals(2)).get.weight
-    val w4Actual = actual.find((x)=>x.from.id.equals(1) && x.to.id.equals(3)).get.weight
-    val w5Actual = actual.find((x)=>x.from.id.equals(2) && x.to.id.equals(-1)).get.weight
-    val w6Actual = actual.find((x)=>x.from.id.equals(3) && x.to.id.equals(-1)).get.weight
+    net.learningStep(1, Seq(0.05, 0.1))
+    val w1Actual = net.weights.find((x)=>x.from.id.equals(0) && x.to.id.equals(2)).get.weight
+    val w2Actual = net.weights.find((x)=>x.from.id.equals(0) && x.to.id.equals(3)).get.weight
+    val w3Actual = net.weights.find((x)=>x.from.id.equals(1) && x.to.id.equals(2)).get.weight
+    val w4Actual = net.weights.find((x)=>x.from.id.equals(1) && x.to.id.equals(3)).get.weight
+    val w5Actual = net.weights.find((x)=>x.from.id.equals(2) && x.to.id.equals(-1)).get.weight
+    val w6Actual = net.weights.find((x)=>x.from.id.equals(3) && x.to.id.equals(-1)).get.weight
     assert(w1Actual == w1Expec)
     assert(w2Actual == w2Expec)
     assert(w3Actual == w3Expec)
@@ -125,9 +125,17 @@ class DomainTest extends FlatSpec with Matchers {
     assert(w5Actual == w5Expec)
     assert(w6Actual == w6Expec)
   }
-  "A second step" should "as well have correct results" in {
+  "An update step " should "reduce the error" in {
     val net = DomainTest.initNet()
+    val before = net.predict(Seq(0.05, 0.1))
     net.learningStep(1, Seq(0.05, 0.1))
-
+    val after = net.predict(Seq(0.05, 0.1))
+    val didImprove = if (before > 1) after < before else if (before != 1) after > before else true
+    assert(didImprove)
+    val before2 = net.predict(Seq(0.05, 0.1))
+    net.learningStep(1, Seq(0.05, 0.1))
+    val after2 = net.predict(Seq(0.05, 0.1))
+    val didImprove2 = if (before > 1) after < before else if (before != 1) after > before else true
+    assert(didImprove2)
   }
 }
