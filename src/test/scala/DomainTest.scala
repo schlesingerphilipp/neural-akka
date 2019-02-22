@@ -133,7 +133,7 @@ class DomainTest extends FlatSpec with Matchers {
     val didImprove = if (before > 1) after < before else if (before != 1) after > before else true
     assert(didImprove)
     val before2 = net.predict(Seq(0.05, 0.1))
-    net.learningStep(1, Seq(0.05, 0.1))
+    net.learningStep(0, Seq(0.05, 0.1))
     val after2 = net.predict(Seq(0.05, 0.1))
     val didImprove2 = if (before > 1) after < before else if (before != 1) after > before else true
     assert(didImprove2)
