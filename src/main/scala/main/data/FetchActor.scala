@@ -1,7 +1,7 @@
 package main.data
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import main.NeuralNet.NNActor.Fit
+import main.NeuralNet.NNActor.{Fit, FitEvo}
 import main.data.FetchActor.{DispatchFetch, Fetch, FetchExample}
 
 import scala.collection.immutable
@@ -30,7 +30,7 @@ class FetchActor  extends Actor with ActorLogging{
   def fetchExample(ref: ActorRef): Unit = {
     log.debug("fetch Example")
     val data = ExampleData(Math.random() * 10, 3, 100)
-    ref ! Fit(data)
+    ref ! FitEvo(data)
   }
 
   def fetch(ref: ActorRef): Unit = log.debug("fetch")
@@ -59,7 +59,7 @@ case class SplitData(split: Seq[DataPoint]) extends Data {
   override val data: Seq[DataPoint] = split
 }
 case class DataPoint(target: Double, features: Seq[Double])
-sealed trait Data{
+trait Data{
   val data: Seq[DataPoint]
   override def toString(): String = {
     val seq: Seq[String] = for {

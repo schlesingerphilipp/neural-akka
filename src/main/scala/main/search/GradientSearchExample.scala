@@ -21,13 +21,13 @@ object GradientSearchExample {
         node(0)  node(1)  node(2)
      */
     val nodes = Seq(
-      Node(0, Sum()),
-      Node(1, Sum()),
-      Node(2, Sum()),
+      Node(0, Input()),
+      Node(1, Input()),
+      Node(2, Input()),
       Node(3, Sigma()),
       Node(4, Sigma()),
       Node(5, Sigma()),
-      Node(-1, Sum()),
+      Node(-1, Input()),
     )
     val weights = Seq(
       Edge(nodes.apply(0), nodes.apply(3), Math.random()),

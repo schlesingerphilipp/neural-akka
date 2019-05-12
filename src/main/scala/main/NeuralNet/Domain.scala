@@ -1,7 +1,11 @@
 package main.NeuralNet
 
+import java.lang.StackWalker
+
 import akka.event.LoggingAdapter
-import main.data.Data
+import main.data.{Data, DataPoint}
+
+import scala.annotation.tailrec
 
 
 trait Logging {
@@ -27,10 +31,16 @@ trait Logging {
     }
   }
 }
+trait Model {
+  def predict(input: Seq[Double]): Double
+  def train(data: Data, minimumImprovementThreshold: Double): Model
+  def getMSE(data: Data): Double
+}
 
-class Network(var weights: Seq[Edge], var lRate: Double)(implicit loggerr: Option[LoggingAdapter]) extends Logging {
+
+class Network(val weights: Seq[Edge], var lRate: Double)(implicit loggerr: Option[LoggingAdapter]) extends Model with Logging {
   override val logger: Option[LoggingAdapter] = loggerr
-  def predict(input: Seq[Double]): Double = {
+  override def predict(input: Seq[Double]): Double = {
     weights.foreach(_.prepare())
     val out: Option[Node] = weights.find(_.to.id == -1).map(_.to)//'out' has id -1
     if (out.isDefined) {
@@ -42,35 +52,36 @@ class Network(var weights: Seq[Edge], var lRate: Double)(implicit loggerr: Optio
     0
   }
 
-  def learningStep(target: Double, input: Seq[Double]): Unit = {
-    this.weights.foreach(_.prepare())
-    this.weights = updatedWeights(input, target)
+  def learningStep(target: Double, input: Seq[Double], weights: Seq[Edge]): Seq[Edge] = {
+    weights.foreach(_.prepare())//weights are stateful, else you do the same calculation the power of weights times
+    updatedWeights(input, target, weights)
   }
 
-  def train(data: Data, minimumImprovementThreshold: Double): Unit = {
-    var mse = getMSE(data)
-    var previous = -1.0
-    var counter = 0
-    var improvement = ((previous - mse) / previous)
-    while (counter == 0 || improvement > minimumImprovementThreshold) {
-      counter += 1
-      data.data.foreach(d => learningStep(d.target, d.features))
-      previous = mse
-      mse = getMSE(data)
-      debug(s"Iteration ${counter}")
-      improvement = ((previous - mse) / previous)
-      if (previous < mse) {
-        info("It got worse")
-      } else {
-        info(s"Improvement: ${improvement}")
-      }
-      if (counter > 1000) {
-        throw new RuntimeException("Exceeded number of iterations")
-      }
+  @tailrec
+  private def learnFromData(data: Seq[DataPoint], weights: Seq[Edge]): Seq[Edge] = {
+    if (data.isEmpty) {
+      return weights
     }
+    learnFromData(data.tail, learningStep(data.head.target, data.head.features, weights))
   }
 
-  private def updatedWeights(input:Seq[Double], target: Double): Seq[Edge] = {
+  @tailrec
+  private def trainRec(data: Data, minimumImprovementThreshold: Double, lastImpro: Double, lastMse: Double,
+                       counter: Int, weights: Seq[Edge]): Seq[Edge]= {
+    if (counter > 1000 || lastImpro < minimumImprovementThreshold) {
+      return weights
+    }
+    val nextMse = getMSE(data)
+    val nextImpro = (lastMse - nextMse) / lastMse
+    debug(s"Improvement: ${nextImpro}")
+    trainRec(data, minimumImprovementThreshold, nextImpro, nextMse, counter + 1, learnFromData(data.data, weights))
+  }
+
+  override def train(data: Data, minimumImprovementThreshold: Double): Model= {
+    new Network(trainRec(data, minimumImprovementThreshold, 0, Double.MaxValue, 0, this.weights), lRate)
+  }
+
+  private def updatedWeights(input:Seq[Double], target: Double, weights: Seq[Edge]): Seq[Edge] = {
     weights.map(e => {
       val delta = e.from.getOut(input, weights) * e.to.deltaE(weights, input, target)
       val newWeight = e.weight + lRate * delta
@@ -78,7 +89,7 @@ class Network(var weights: Seq[Edge], var lRate: Double)(implicit loggerr: Optio
     })
   }
 
-  def getMSE(data: Data): Double = {
+  override def getMSE(data: Data): Double = {
     val mse = data.data.map(e => {
       val prediction = predict(e.features)
       (e.target - prediction) * (e.target - prediction)
@@ -97,7 +108,7 @@ case class Edge(from: Node, to: Node, weight: Double) {
 
 
 
-case class Node(id: Int, function: Function)(implicit loggerr: Option[LoggingAdapter]) extends Logging{
+case class Node(id: Int, function: Function, layer: Option[Int] = Option.empty)(implicit loggerr: Option[LoggingAdapter]) extends Logging{
   override val logger: Option[LoggingAdapter] = loggerr
   var in:  Option[Seq[(Double, Double)]] = Option.empty
   var out: Option[Double] =  Option.empty
@@ -147,12 +158,14 @@ trait Function {
   def derivative(out: Double): Double
   def getValue(input: Seq[(Double, Double)]): Double
 }
-
 case class Sum() extends Function {
   override def derivative(out: Double): Double = 1
   override def getValue(input: Seq[(Double, Double)]): Double = input.map(i=> i._1 * i._2).sum
 }
-case class Input() extends Sum{} //Naming to make it clear. The value of an input is taken differently, derivative is always 1
+case class Input() extends Function {
+  override def derivative(out: Double): Double = 1
+  override def getValue(input: Seq[(Double, Double)]): Double = ??? //Input value is taken from inputs. Do not implement this
+}
 
 case class Sigma() extends Function {
   override def derivative(out: Double): Double = out* (1 - out)

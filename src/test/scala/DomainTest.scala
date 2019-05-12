@@ -1,5 +1,6 @@
 import akka.event.LoggingAdapter
-import main.NeuralNet._
+import main.NeuralNet.{Network, _}
+import main.data.{Data, DataPoint}
 import org.scalatest._
 object DomainTest extends FlatSpec {
   implicit val logger: Option[LoggingAdapter] = Option.empty
@@ -75,17 +76,7 @@ class DomainTest extends FlatSpec with Matchers {
     val net = DomainTest.initNet()
     net.predict(Seq(0.05, 0.1)) should equal(o1)
   }
-  "A initial backwards-propagation" should "yield weights" in {
-    val h1 = 0.05 * 0.15 + 0.1 * 0.25
-    val h2 = 0.05 * 0.2 + 0.1 * 0.3
-    val o1 = h1 * 0.4 + h2 * 0.45
-    val e1 = o1 - 0.2
-    
 
-
-    val net = DomainTest.initNet()
-    net.learningStep(0.2, Seq(0.05, 0.1)) should be
-  }
 
   "One Learning Step" should "update weights to these values" in {
     val net = DomainTest.initNet()
@@ -105,19 +96,19 @@ class DomainTest extends FlatSpec with Matchers {
     val dw3 = dw5 * dh1 * oi2
     val dw2 = dw6 * dh2 * oi1
     val dw1 = dw5 * dh1 * oi1
-    val w1Expec = 0.1 - lRate * dw1
-    val w2Expec = 0.2 - lRate * dw2
-    val w3Expec = 0.3 - lRate * dw3
-    val w4Expec = 0.4 - lRate * dw4
-    val w5Expec = 0.5 - lRate * dw5
-    val w6Expec = 0.6 - lRate * dw6
-    net.learningStep(1, Seq(0.05, 0.1))
-    val w1Actual = net.weights.find((x)=>x.from.id.equals(0) && x.to.id.equals(2)).get.weight
-    val w2Actual = net.weights.find((x)=>x.from.id.equals(0) && x.to.id.equals(3)).get.weight
-    val w3Actual = net.weights.find((x)=>x.from.id.equals(1) && x.to.id.equals(2)).get.weight
-    val w4Actual = net.weights.find((x)=>x.from.id.equals(1) && x.to.id.equals(3)).get.weight
-    val w5Actual = net.weights.find((x)=>x.from.id.equals(2) && x.to.id.equals(-1)).get.weight
-    val w6Actual = net.weights.find((x)=>x.from.id.equals(3) && x.to.id.equals(-1)).get.weight
+    val w1Expec = 0.1 + lRate * dw1
+    val w2Expec = 0.2 + lRate * dw2
+    val w3Expec = 0.3 + lRate * dw3
+    val w4Expec = 0.4 + lRate * dw4
+    val w5Expec = 0.5 + lRate * dw5
+    val w6Expec = 0.6 + lRate * dw6
+    val newWeights = net.learningStep(1, Seq(0.05, 0.1), net.weights)
+    val w1Actual = newWeights.find((x)=>x.from.id.equals(0) && x.to.id.equals(2)).get.weight
+    val w2Actual = newWeights.find((x)=>x.from.id.equals(0) && x.to.id.equals(3)).get.weight
+    val w3Actual = newWeights.find((x)=>x.from.id.equals(1) && x.to.id.equals(2)).get.weight
+    val w4Actual = newWeights.find((x)=>x.from.id.equals(1) && x.to.id.equals(3)).get.weight
+    val w5Actual = newWeights.find((x)=>x.from.id.equals(2) && x.to.id.equals(-1)).get.weight
+    val w6Actual = newWeights.find((x)=>x.from.id.equals(3) && x.to.id.equals(-1)).get.weight
     assert(w1Actual == w1Expec)
     assert(w2Actual == w2Expec)
     assert(w3Actual == w3Expec)
@@ -128,14 +119,10 @@ class DomainTest extends FlatSpec with Matchers {
   "An update step " should "reduce the error" in {
     val net = DomainTest.initNet()
     val before = net.predict(Seq(0.05, 0.1))
-    net.learningStep(1, Seq(0.05, 0.1))
-    val after = net.predict(Seq(0.05, 0.1))
+    val newWeights = net.learningStep(1, Seq(0.05, 0.1), net.weights)
+    val fittedNet = new Network(newWeights, 0.1)
+    val after = fittedNet.predict(Seq(0.05, 0.1))
     val didImprove = if (before > 1) after < before else if (before != 1) after > before else true
     assert(didImprove)
-    val before2 = net.predict(Seq(0.05, 0.1))
-    net.learningStep(0, Seq(0.05, 0.1))
-    val after2 = net.predict(Seq(0.05, 0.1))
-    val didImprove2 = if (before > 1) after < before else if (before != 1) after > before else true
-    assert(didImprove2)
   }
 }
