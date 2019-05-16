@@ -1,12 +1,11 @@
-import akka.event.LoggingAdapter
 import main.NeuralNet.{Network, _}
-import main.data.{Data, DataPoint}
+import main.util.Logger
 import org.scalatest._
 object DomainTest extends FlatSpec {
-  implicit val logger: Option[LoggingAdapter] = Option.empty
+  implicit val logger: Logger = Logger(Option.empty)
   def initNet(): Network = {
-    val i1 = Node(0, Sum())
-    val i2 = Node(1, Sum())
+    val i1 = Node(0, Input())
+    val i2 = Node(1, Input())
     val h1 = Node(2, Sigma())
     val h2 = Node(3, Sigma())
     val o1 = Node(-1, Sum())
@@ -20,7 +19,7 @@ object DomainTest extends FlatSpec {
   }
 }
 class DomainTest extends FlatSpec with Matchers {
-  implicit val logger: Option[LoggingAdapter] = Option.empty
+  implicit val logger: Logger = Logger(Option.empty)
   "DoublePrecision sigma" should "up zero to 0.00001" in {
     val expected = 0 + 1 / Math.pow(10,10)
     DoublePrecision.sigma(0) should equal(expected)
@@ -61,7 +60,7 @@ class DomainTest extends FlatSpec with Matchers {
     val input = 0.5
     val weightVal = 1
     val weights = Seq[Edge](Edge(i1, testNode, weightVal))
-    val z = (input * weightVal)
+    val z = input * weightVal
     val expected = DoublePrecision.sigma(1/ (1 + Math.pow(Math.E, -1 * z)))
     testNode.getOut(Seq(input), weights) should equal(expected)
   }
@@ -103,12 +102,12 @@ class DomainTest extends FlatSpec with Matchers {
     val w5Expec = 0.5 + lRate * dw5
     val w6Expec = 0.6 + lRate * dw6
     val newWeights = net.learningStep(1, Seq(0.05, 0.1), net.weights)
-    val w1Actual = newWeights.find((x)=>x.from.id.equals(0) && x.to.id.equals(2)).get.weight
-    val w2Actual = newWeights.find((x)=>x.from.id.equals(0) && x.to.id.equals(3)).get.weight
-    val w3Actual = newWeights.find((x)=>x.from.id.equals(1) && x.to.id.equals(2)).get.weight
-    val w4Actual = newWeights.find((x)=>x.from.id.equals(1) && x.to.id.equals(3)).get.weight
-    val w5Actual = newWeights.find((x)=>x.from.id.equals(2) && x.to.id.equals(-1)).get.weight
-    val w6Actual = newWeights.find((x)=>x.from.id.equals(3) && x.to.id.equals(-1)).get.weight
+    val w1Actual = newWeights.find(x=>x.from.id.equals(0) && x.to.id.equals(2)).get.weight
+    val w2Actual = newWeights.find(x=>x.from.id.equals(0) && x.to.id.equals(3)).get.weight
+    val w3Actual = newWeights.find(x=>x.from.id.equals(1) && x.to.id.equals(2)).get.weight
+    val w4Actual = newWeights.find(x=>x.from.id.equals(1) && x.to.id.equals(3)).get.weight
+    val w5Actual = newWeights.find(x=>x.from.id.equals(2) && x.to.id.equals(-1)).get.weight
+    val w6Actual = newWeights.find(x=>x.from.id.equals(3) && x.to.id.equals(-1)).get.weight
     assert(w1Actual == w1Expec)
     assert(w2Actual == w2Expec)
     assert(w3Actual == w3Expec)

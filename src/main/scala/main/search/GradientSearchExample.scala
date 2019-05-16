@@ -5,12 +5,13 @@ import akka.event.LoggingAdapter
 import com.typesafe.config.ConfigFactory
 import main.NeuralNet._
 import main.data.Data
+import main.util.Logger
 
 object GradientSearchExample {
 
   val config = ConfigFactory.load()
   val system: ActorSystem = ActorSystem(config.getString("akka-system"), config)
-  implicit val logger: Option[LoggingAdapter] = Option(system.log)
+  implicit val logger = Logger(Option(system.log))
   def run(data: Data): Unit = {
     /*
 
@@ -47,8 +48,8 @@ object GradientSearchExample {
     val randomMeanSquareError = net.getMSE(data)
     net.train(data, 0.01)
     val meanSquareError = net.getMSE(data)
-    logger.get.info(s"meanSquareError:  ${meanSquareError}")
-    logger.get.info(s"improvement: ${(randomMeanSquareError - meanSquareError) / randomMeanSquareError} parts better than random")
+    logger.info(s"meanSquareError:  ${meanSquareError}")
+    logger.info(s"improvement: ${(randomMeanSquareError - meanSquareError) / randomMeanSquareError} parts better than random")
   }
 
 }

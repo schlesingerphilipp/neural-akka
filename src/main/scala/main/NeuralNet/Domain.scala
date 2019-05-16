@@ -1,36 +1,10 @@
 package main.NeuralNet
-
-import java.lang.StackWalker
-
 import akka.event.LoggingAdapter
 import main.data.{Data, DataPoint}
+import main.util.{Logger, Logging}
 
 import scala.annotation.tailrec
 
-
-trait Logging {
-  val logger: Option[LoggingAdapter]
-  def info(m: String): Unit = {
-    if (logger.isDefined) {
-      logger.get.info(m)
-    }
-  }
-  def debug(m: String): Unit = {
-    if (logger.isDefined) {
-      logger.get.info(m)
-    }
-  }
-  def warn(m: String): Unit = {
-    if (logger.isDefined) {
-      logger.get.info(m)
-    }
-  }
-  def error(m: String): Unit = {
-    if (logger.isDefined) {
-      logger.get.info(m)
-    }
-  }
-}
 trait Model {
   def predict(input: Seq[Double]): Double
   def train(data: Data, minimumImprovementThreshold: Double): Model
@@ -38,8 +12,8 @@ trait Model {
 }
 
 
-class Network(val weights: Seq[Edge], var lRate: Double)(implicit loggerr: Option[LoggingAdapter]) extends Model with Logging {
-  override val logger: Option[LoggingAdapter] = loggerr
+class Network(val weights: Seq[Edge], var lRate: Double)(implicit l: Logger) extends Model with Logging {
+  override val logger = l
   override def predict(input: Seq[Double]): Double = {
     weights.foreach(_.prepare())
     val out: Option[Node] = weights.find(_.to.id == -1).map(_.to)//'out' has id -1
@@ -108,21 +82,21 @@ case class Edge(from: Node, to: Node, weight: Double) {
 
 
 
-case class Node(id: Int, function: Function, layer: Option[Int] = Option.empty)(implicit loggerr: Option[LoggingAdapter]) extends Logging{
-  override val logger: Option[LoggingAdapter] = loggerr
+case class Node(id: Int, function: Function, layer: Option[Int] = Option.empty)(implicit l: Logger) extends Logging{
+  override val logger = l
   var in:  Option[Seq[(Double, Double)]] = Option.empty
   var out: Option[Double] =  Option.empty
   var delta: Option[Double] = Option.empty
 
   def getOut(input: Seq[Double], weights: Seq[Edge]): Double = {
     if (this.out.isDefined) return this.out.get
-    val weightsTo = weights.filter(_.to.eq(this))
-    if (weightsTo.isEmpty) {
-      //Nodes without an incoming edge are input nodes, which take the input value as is
-      this.out = Option(input.apply(id))
-      return out.get
+    this.out = this.function match {
+      case func: Input => Option(input.apply(id))//Input Nodes just take the input at the index equal to their id
+      case _ => {
+        val weightsTo = weights.filter(_.to.eq(this))
+        Option(function.getValue(getIn(weightsTo, input, weights)))
+      }
     }
-    this.out = Option(function.getValue(getIn(weightsTo, input, weights)))
     out.get
   }
 

@@ -1,27 +1,36 @@
-import akka.event.LoggingAdapter
 import main.NeuralNet.{Network, _}
-import main.search.{Population, PopulationSearch}
+import main.data.{ExampleData}
+import main.search.{PopulationSearch}
+import main.util.Logger
 import org.scalatest._
 
-import scala.collection.immutable
 object PopulationSearchTest extends FlatSpec {
 
 
 }
 class PopulationSearchTest extends FlatSpec with Matchers {
-  def getNetwork: Network = {
-    PopulationSearch.spawnNet(
-    5,1, PopulationSearch.getRandomHiddenLayerVolume(5),
-    PopulationSearch.fullWeave, Sigma()).model.asInstanceOf[Network]
-  }
+  implicit val logger = Logger(Option.empty)
 
-  implicit val logger: Option[LoggingAdapter] = Option.empty
   val inputs = Seq(Node(0, Input()), Node(1, Input()),Node(2, Input()),Node(3, Input()),Node(4, Input()))
   val hidden = Seq(Node(5, Sigma()), Node(6, Sigma()),Node(7, Sigma()),Node(8, Sigma()), Node(9, Sigma()))
   val out = Seq(Node(-1, Sum()))
   val edgesInputHiddenOne: Seq[Edge] = (for (i <- 0 until 5) yield  for (j <- 0 until 5) yield Edge(inputs.apply(i), hidden.apply(j), Math.random())).flatten
   val edgesHiddenOneOut: Seq[Edge] = for (i <- 0 until 5) yield Edge(hidden.apply(i), out.apply(0), Math.random())
   val netTest = new Network(edgesInputHiddenOne ++ edgesHiddenOneOut, 1)
+
+
+  def getNetwork: Network = {
+    PopulationSearch.spawnNet(
+      5,1, PopulationSearch.getRandomHiddenLayerVolume(5),
+      PopulationSearch.fullWeave, Sigma()).model.asInstanceOf[Network]
+  }
+
+  "A Population Search "should " not throw runtime exceptions and should yield a Model" in {
+    val data = ExampleData(5,5,5000)
+    val search = new PopulationSearch(data, 10, 10)
+    val model = search.fit()
+    model.getMSE(data) should equal(0) //hahah
+  }
 
   "A Population initialized with size" should "have size" in {
     var expected = 10
