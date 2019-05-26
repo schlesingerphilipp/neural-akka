@@ -1,7 +1,7 @@
 import main.NeuralNet.{Network, _}
-import main.data.{ExampleData}
-import main.search.{PopulationSearch}
-import main.util.Logger
+import main.data.ExampleData
+import main.search._
+import main.util.{Logger, TestAdapter}
 import org.scalatest._
 
 object PopulationSearchTest extends FlatSpec {
@@ -9,7 +9,7 @@ object PopulationSearchTest extends FlatSpec {
 
 }
 class PopulationSearchTest extends FlatSpec with Matchers {
-  implicit val logger = Logger(Option.empty)
+  implicit val logger = Logger(Option(new TestAdapter()))
 
   val inputs = Seq(Node(0, Input()), Node(1, Input()),Node(2, Input()),Node(3, Input()),Node(4, Input()))
   val hidden = Seq(Node(5, Sigma()), Node(6, Sigma()),Node(7, Sigma()),Node(8, Sigma()), Node(9, Sigma()))
@@ -20,9 +20,19 @@ class PopulationSearchTest extends FlatSpec with Matchers {
 
 
   def getNetwork: Network = {
+    getPop(1).model.asInstanceOf[Network]
+  }
+
+  def getPop(hiddenLayers: Int): PopulationMember = {
     PopulationSearch.spawnNet(
-      5,1, PopulationSearch.getRandomHiddenLayerVolume(5),
-      PopulationSearch.fullWeave, Sigma()).model.asInstanceOf[Network]
+      5,hiddenLayers, PopulationSearch.getRandomHiddenLayerVolume(5),
+      PopulationSearch.fullWeave, Sigma())
+  }
+
+  def getMutator(params: MutationParameters, pop: PopulationMember): MutatingNetwork= {
+    val network = pop.model.asInstanceOf[Network]
+    val features = pop.features.asInstanceOf[NetworkFeatures]
+    new MutatingNetwork(network.weights, network.lRate,  params, features)
   }
 
   "A Population Search "should " not throw runtime exceptions and should yield a Model" in {
@@ -57,10 +67,54 @@ class PopulationSearchTest extends FlatSpec with Matchers {
     val net: Network = getNetwork
     val hiddenOne = net.weights.filter(_.from.layer.get == 1).map(_.from).distinct
     val hiddenTwo = net.weights.filter(_.from.layer.get == 2).map(_.from).distinct
-    hiddenOne.length > 0 should equal(true)
-    hiddenTwo.length > 0 should equal(true)
+    hiddenOne.nonEmpty should equal(true)
+    hiddenTwo.nonEmpty should equal(true)
     hiddenOne.length should equal(hiddenTwo.length)
   }
+  "Any spawned net" should "have a node with id -1, which is the output node" in {
+    val net: Network = getNetwork
+    net.weights.exists(_.to.id == -1) should equal(true)
+    net.weights.exists(_.from.id == -1) should equal(false)
+  }
+
+  "incrementLayerIndexBy  " should "increase the index by X amount" in {
+    val layers = getPop(1).features.asInstanceOf[NetworkFeatures].layers
+    val increased = MutatingNetwork.incrementLayerIndexBy(layers, 1)
+    val layerSum= layers.flatMap(_.map(_.layer.getOrElse(0))).sum
+    val increasedSum = increased.flatMap(_.map(_.layer.getOrElse(0))).sum
+    assert(layerSum + layers.length == increasedSum, "the layerindex did not increase by 1 in each layer")
+  }
+
+  "Adding a Layer " should "never result in disconnecting the outputnode, and add one layer" in {
+    val pop = getPop(1)
+    val params = MutationParameters(1.1, 0, 0, 0)
+    val mutator = getMutator(params, pop)
+    var mutated = mutator.mutate()
+    var lastLayerCount = mutated.weights.map(_.to.layer).max.get
+    for (i <- 0 until 100) {
+      mutated = mutated.mutate()
+      assert(mutated.weights.exists(_.to.id == -1), "no edge to output node left")
+      val layerCount = mutated.weights.map(_.to.layer).max.get
+      assert(layerCount > lastLayerCount, "did not increase layer-count")
+      lastLayerCount = layerCount
+    }
+  }
+
+  "Removing a Layer " should "never result in disconnecting the outputnode, and remove one layer" in {
+    val pop = getPop(100)
+    val params = MutationParameters(0, 1, 0, 0)
+    val mutator = getMutator(params, pop)
+    var mutated = mutator.mutate()
+    var lastLayerCount = mutated.weights.map(_.to.layer).max.get
+    for (i <- 0 until 99) {
+      mutated = mutated.mutate()
+      assert(mutated.weights.exists(_.to.id == -1), "no edge to output node left")
+      val layerCount = mutated.weights.map(_.to.layer).max.get
+      assert(layerCount < lastLayerCount, "did not decrease layer-count")
+      lastLayerCount = layerCount
+    }
+  }
+
   "An interWeave " should "yield Edges" in {
     //TODO
 

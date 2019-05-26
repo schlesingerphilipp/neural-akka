@@ -1,6 +1,4 @@
 package main.search
-
-import akka.event.LoggingAdapter
 import main.NeuralNet.{Edge, Function, Input, Model, Network, Node, Sigma, Sum}
 import main.data.{Data, DataPoint, SplitData}
 import main.search.PopulationSearch.interWeave
@@ -22,7 +20,7 @@ class PopulationSearch(data: Data, popSize: Int, popNumber: Int) (implicit l: Lo
   def fit(): Model = {
     val firstStep = fitAndMutate(populations, training)
     val lastFitStep = fitRec(firstStep, training)
-    //loggerr.get.info("fitted")
+
     lastFitStep.populations.maxBy(_.members.map(_.model.getMSE(data)).sum).members.maxBy(_.model.getMSE(data)).model
   }
 
@@ -42,9 +40,9 @@ class PopulationSearch(data: Data, popSize: Int, popNumber: Int) (implicit l: Lo
   private case class FitStepResult(bestMse: Double, avrgMse: Double, populations: Seq[Population])
 
   private def fitAndMutate(populations: Seq[Population], data: Data): FitStepResult = {
-    val trained = trainModels(populations, data)
-    val mutated = mutateModels(trained, 1)//we do not have resizing jet
-    val scoring = getScore(mutated, data)
+    val mutated = mutateModels(populations, 1)//we do not have resizing jet
+    val trained = trainModels(mutated, data)
+    val scoring = getScore(trained, data)
     FitStepResult(scoring._1, scoring._2, mutated)
   }
 
@@ -55,7 +53,10 @@ class PopulationSearch(data: Data, popSize: Int, popNumber: Int) (implicit l: Lo
       return nextStep
     }
     info("fitting step")
+    info(s"Prediction: ${nextStep.populations.apply(0).members.apply(0).model.predict(data.data.apply(0).features)}")
+    info(s"Target: ${data.data.apply(0).target}")
     fitRec(nextStep, data)
+
   }
 
   def predict(features: Seq[Seq[Double]]): Seq[Double] = ???
@@ -74,7 +75,7 @@ case class PopulationMember(model: Model, features: ModelFeatures)(implicit l: L
   def mutate(): PopulationMember = {
     model match {
       case n: Network => {
-        val params = MutationParameters(0.05, 0.05, 0.05)
+        val params = MutationParameters(0.05, 0.05, 0.05, 0.05)
         val mutator = features match {
           case f: NetworkFeatures=> new MutatingNetwork(n.weights, n.lRate,  params, f)}
         val mutated = mutator.mutate()
@@ -93,15 +94,19 @@ case class NetworkFeatures(layers: Seq[Seq[Node]])(implicit l: Logger) extends M
   })
 }
 
-private case class MutationParameters(mutateLayersChance: Double, addEdgeChance: Double, removeEdgeChance: Double)
-
+case class MutationParameters(addLayerChance: Double, removeLayerChance: Double, addEdgeChance: Double, removeEdgeChance: Double)
+object MutatingNetwork {
+  def incrementLayerIndexBy(layersToIncrement: Seq[Seq[Node]], incrementBy: Int)(implicit l:Logger): Seq[Seq[Node]] = {
+    layersToIncrement.map(_.map(n=>Node(n.id, n.function, n.layer.map(_ + incrementBy))))
+  }
+}
 class MutatingNetwork(weights: Seq[Edge], lRate: Double, params: MutationParameters, val features: NetworkFeatures)
                      (implicit l:Logger) extends Network(weights, lRate)(l) {
   val layerCount: Int = features.layers.length
 
   def mutate(): MutatingNetwork = {
     try {
-      addOrRemoveOneLayer().addEdges().removeEdges()
+      removeOneLayer().addOneLayer().addEdges().removeEdges()
     } catch {
       case e: Throwable => {
         error(e.getMessage)
@@ -118,43 +123,55 @@ class MutatingNetwork(weights: Seq[Edge], lRate: Double, params: MutationParamet
     //Do not remove input layer
     //Do not remove output layer
     //weave the new neighbours
-    if (layerCount == 2) return this
-    val index = getRandomHiddenLayerIndex()
-    if (index == layerCount- 1) {
-      info("this should not happen")
+    if (layerCount == 2) {
+      info("Nothing to remove left")
+      return this
     }
+    val index = getRandomHiddenLayerIndex()
     val removedNodes = features.layers.apply(index).map(_.id)
     val remainingLayers: Seq[Seq[Node]] = features.layers.slice(0,index) ++
-      incrementLayerIndexBy(features.layers.slice(index +1, layerCount), -1)
-    val toNodes = features.layers.apply(index + 1)
-    val fromNodes = features.layers.apply(index - 1)
-    val newEdges = interWeave(fromNodes, toNodes, (fromNodes.length + toNodes.length) / 2, PopulationSearch.fullWeave, () => Math.random())
+      MutatingNetwork.incrementLayerIndexBy(features.layers.slice(index +1, layerCount), -1)
+    val toNodes = remainingLayers.apply(index)
+    val fromNodes = remainingLayers.apply(index -1)
+    val newEdges = interWeave(fromNodes, toNodes, PopulationSearch.fullWeave, () => Math.random())
     val remainingEdges = weights.filter(e=> !removedNodes.contains(e.from.id) || !removedNodes.contains(e.to.id))
-    new MutatingNetwork(remainingEdges ++ newEdges, lRate, params, NetworkFeatures(remainingLayers))
-  }
-
-  private def incrementLayerIndexBy(layersToIncrement: Seq[Seq[Node]], incrementBy: Int): Seq[Seq[Node]] = {
-    layersToIncrement.map(_.map(n=>Node(n.id, n.function, n.layer.map(_ + incrementBy))))
+    val updatedRemaining = updateLayerIndexOfRemainingEdges(remainingEdges, index, -1)
+    val newWeights = updatedRemaining ++ newEdges
+    new MutatingNetwork(newWeights, lRate, params, NetworkFeatures(remainingLayers))
   }
 
   private def addLayer(): MutatingNetwork = {
     //insert at random index
+    //shift everything from the index 1 up
     val index = if (layerCount == 2) 1 else getRandomHiddenLayerIndex()
-    val maxId = features.layers.flatMap(_.map(_.id)).max
-    val newLayer = PopulationSearch.randomHiddenLayer(maxId, features.inputs, index)
+    debug(s"adding layer at ${index}")
+    debug(s"in: ${features.layers.length} layered network")
+    val nextId = features.layers.flatMap(_.map(_.id)).max + 1
+    val newLayer = PopulationSearch.randomHiddenLayer(nextId, features.inputs, index)
     val newLayers = features.layers.slice(0, index) ++ Seq(newLayer) ++
-      incrementLayerIndexBy(features.layers.slice(index +1, layerCount), 1)
+      MutatingNetwork.incrementLayerIndexBy(features.layers.slice(index, layerCount), 1)
     // weave downwards and upwards
-    val layerBelow = features.layers.apply(index-1)
-    val layerAbove = features.layers.apply(index)
-    val newEdgesTo = interWeave(layerBelow, newLayer, (layerBelow.length + newLayer.length) / 2, PopulationSearch.fullWeave, () => Math.random())
-    val newEdgesFrom = interWeave(newLayer, layerAbove, (newLayer.length + layerAbove.length) / 2, PopulationSearch.fullWeave, () => Math.random())
+    val layerBelow = newLayers.apply(index - 1)
+    val layerAbove = newLayers.apply(index + 1)
+    val newEdgesTo = interWeave(layerBelow, newLayer, PopulationSearch.fullWeave, () => Math.random())
+    val newEdgesFrom = interWeave(newLayer, layerAbove, PopulationSearch.fullWeave, () => Math.random())
     //Remove edges between old neighbours
     val belowIds = layerBelow.map(_.id)
     val aboveIds = layerAbove.map(_.id)
     val remainingEdges = weights.filter(e=> !(belowIds.contains(e.from.id) || aboveIds.contains(e.to.id)))
-    val newEdges = remainingEdges ++ newEdgesTo ++ newEdgesFrom
+    val updatedRemaining = updateLayerIndexOfRemainingEdges(remainingEdges, index, 1)
+    val newEdges = (updatedRemaining ++ newEdgesTo ++ newEdgesFrom).sortBy(_.from.layer)
     new MutatingNetwork(newEdges, lRate, params, NetworkFeatures(newLayers))
+  }
+
+  private def updateLayerIndexOfRemainingEdges(edges: Seq[Edge], editedIndex: Int, increase: Int): Seq[Edge] = {
+    edges.map(e => {
+      val from = MutatingNetwork.incrementLayerIndexBy(Seq(Seq(e.from)),
+        if (e.from.layer.exists(_ >= editedIndex)) increase else 0).flatten.head
+      val to = MutatingNetwork.incrementLayerIndexBy(Seq(Seq(e.to)),
+        if (e.to.layer.exists(_ >= editedIndex)) increase else 0).flatten.head
+      Edge(from, to, e.weight)
+    })
   }
 
   /**
@@ -166,13 +183,14 @@ class MutatingNetwork(weights: Seq[Edge], lRate: Double, params: MutationParamet
     if (candidate >= layerCount -1) layerCount - 2 else candidate
   }
 
-  private def addOrRemoveOneLayer(): MutatingNetwork = {
-    if (Math.random() > params.mutateLayersChance ) {
-      if (Math.random() > 0.5) {
-        addLayer()
-      } else {
-        removeLayer()
-      }
+  private def addOneLayer(): MutatingNetwork = {
+    if (Math.random() < params.addLayerChance ) {
+      addLayer()
+      } else this
+  }
+  private def removeOneLayer(): MutatingNetwork = {
+    if (Math.random() < params.removeLayerChance ) {
+      removeLayer()
     } else this
   }
 
@@ -194,13 +212,14 @@ class MutatingNetwork(weights: Seq[Edge], lRate: Double, params: MutationParamet
     * @return A Network without the removed Edges
     */
   private def removeEdges(): MutatingNetwork = {
-    val newEdges = weights.dropWhile(e=>Math.random() > 1 - params.removeEdgeChance && weights.count(_.from.id == e.from.id) > 1)
+    val newEdges = weights.dropWhile(e=>Math.random() < params.removeEdgeChance && weights.count(_.from.id == e.from.id) > 1)
     new MutatingNetwork(newEdges, lRate, params, features)
   }
 
   private def newEdges(net: Network, from: Seq[Node], to: Seq[Node], chance: Double): Seq[Edge] = {
-    from.flatMap(fromNode => to.flatMap(toNode => newEdgeIfNotExists(net, fromNode, toNode)))
-      .filter(_=>Math.random() < 1 - chance)
+    val newEdges = from.flatMap(fromNode => to.flatMap(toNode => newEdgeIfNotExists(net, fromNode, toNode)))
+      .filter(_=>Math.random() < chance)
+    newEdges
   }
 
   private def newEdgeIfNotExists(net: Network, from: Node, to: Node) : Option[Edge] = {
@@ -222,14 +241,13 @@ object PopulationSearch {
   }
 
   def randomHiddenLayer(nodeIdSeq: Int, inputs: Int, hiddenLayerIndex: Int)(implicit l: Logger): Seq[Node] = {
-    val numOfNodes = (2 * Math.random() * inputs).toInt
+    val numOfNodes = Math.ceil(2 * Math.random() * inputs).toInt
     for (i <- 0 until numOfNodes) yield Node(i + nodeIdSeq, Sigma(), Option(hiddenLayerIndex))
   }
 
   def spawnNet(inputs: Int, hiddenLayers: Int, hiddenLayerVolume: (Int, Int, Int)=>Int,
-               interWeaveFunc: (Int, Int, Node, Seq[Node]) => Seq[(Node,Node)], output: Function)(implicit l: Logger)
+               interWeaveFunc: (Node, Seq[Node]) => Seq[(Node,Node)], output: Function)(implicit l: Logger)
   : PopulationMember = {
-    val interWeaveFactor = inputs
     val inputNodes = {
       for (i <- 0 until inputs) yield Node(i, Input(), Option(0))
     }
@@ -244,30 +262,23 @@ object PopulationSearch {
     val layers: Seq[Seq[Node]] = inputNodes +: hiddenLayersList :+ out
     val weights = layers.flatMap(layer => {
       if (layers.indexOf(layer) <= layers.length -2) {
-          interWeave(layer, layers.apply(layers.indexOf(layer) +1), interWeaveFactor , this.fullWeave, () => Math.random())
+          interWeave(layer, layers.apply(layers.indexOf(layer) +1) , this.fullWeave, () => Math.random())
       } else {
         Seq.empty
       }
     })
     PopulationMember(new Network(weights, 0.01), NetworkFeatures(layers))
   }
-  def interWeave(from: Seq[Node], to: Seq[Node], interWeaveFactor: Int,
-                 interWeaveFunc: (Int, Int, Node, Seq[Node]) => Seq[(Node,Node)], weightFunction: ()=>Double): Seq[Edge] = {
-      val actualWeaveFactor = if (interWeaveFactor < to.length) interWeaveFactor else to.length
-      from.flatMap(f => {
-      val idx: Int = from.indexOf(f)
-      val startIndx = if (idx - actualWeaveFactor <  0) 0 else  idx - actualWeaveFactor
-      val endIndx = if (idx + actualWeaveFactor >  to.length) to.length else  idx + actualWeaveFactor
-      val nodeTuples = interWeaveFunc(startIndx, endIndx, f, to)
-      nodeTuples.map(tuple=>Edge(tuple._1, tuple._2, weightFunction()))
-    })
+  def interWeave(from: Seq[Node], to: Seq[Node], interWeaveFunc: (Node, Seq[Node]) => Seq[(Node,Node)],
+                 weightFunction: ()=>Double): Seq[Edge] = {
+      from.flatMap(interWeaveFunc(_, to)).map(tuple=>Edge(tuple._1, tuple._2, weightFunction()))
   }
-  def fullWeave(startIndx: Int, endIndx: Int, from: Node, nextLayer: Seq[Node]): Seq[(Node,Node)] = {
-      for (i <- startIndx until endIndx) yield (from, nextLayer.apply(i))
+  def fullWeave(from: Node, nextLayer: Seq[Node]): Seq[(Node,Node)] = {
+      nextLayer.map((from, _))
   }
-  def partialWeave(startIndx: Int, endIndx: Int, from: Node, nextLayer: Seq[Node]): Seq[(Node,Node)] = {
+  def partialWeave(from: Node, nextLayer: Seq[Node]): Seq[(Node,Node)] = {
     val density = 0.5
-    fullWeave(startIndx,endIndx,from,nextLayer).filter(_=>Math.random() > density)
+    fullWeave(from,nextLayer).filter(_=>Math.random() > density)
   }
   def getRandomHiddenLayerVolume(inputs: Int): (Int, Int, Int) => Int = {
     (a: Int, b: Int, c: Int) => (2 * Math.random() * inputs).toInt
