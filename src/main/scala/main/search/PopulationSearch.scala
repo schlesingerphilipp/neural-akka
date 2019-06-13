@@ -5,6 +5,7 @@ import main.search.PopulationSearch.interWeave
 import main.util.{Logger, Logging}
 
 import scala.annotation.tailrec
+import scala.util.Random
 
 
 class PopulationSearch(data: Data, popSize: Int, popNumber: Int) (implicit l: Logger) extends Logging {
@@ -15,7 +16,7 @@ class PopulationSearch(data: Data, popSize: Int, popNumber: Int) (implicit l: Lo
   val test = SplitData(testSplit._1)
   val validation = SplitData(testSplit._2)
   val inputs = data.data.apply(0).features.size
-  val populations: Seq[Population] = for (i <- 0 until popSize) yield PopulationSearch.createPopulation(inputs, popSize, i)
+  val populations: Seq[Population] = for (i <- 0 until popNumber) yield PopulationSearch.createPopulation(inputs, popSize, i)
 
   def fit(): Model = {
     val firstStep = fitAndMutate(populations, training)
@@ -29,12 +30,12 @@ class PopulationSearch(data: Data, popSize: Int, popNumber: Int) (implicit l: Lo
       .map(seqOfSeq => Population(seqOfSeq.map(m => PopulationMember(m._1, m._2))))
   }
   def mutateModels(populations: Seq[Population], replicationFactor: Int): Seq[Population] = {
-    populations.flatMap(_.members.map(_.mutateFrom(replicationFactor))).map(Population)
+    populations.map(p=>Population(p.members.flatMap(_.mutateFrom(replicationFactor))))
   }
 
   def getScore(populations: Seq[Population], data: Data): (Double, Double)  = {
     val mses: Seq[Double] = populations.flatMap(_.members.map(_.model.getMSE(data)))
-    (mses.sorted(Ordering[Double].reverse).head, mses.sum / mses.length)
+    (mses.sorted(Ordering[Double]).head, mses.sum / mses.length)
   }
 
   private case class FitStepResult(bestMse: Double, avrgMse: Double, populations: Seq[Population])
@@ -49,7 +50,7 @@ class PopulationSearch(data: Data, popSize: Int, popNumber: Int) (implicit l: Lo
   @tailrec
   private final def fitRec(step: FitStepResult, data: Data): FitStepResult = {
     val nextStep = fitAndMutate(step.populations, data)
-    if (nextStep.bestMse / step.bestMse < 1.05 && nextStep.avrgMse / step.avrgMse < 1.05) {
+    if (nextStep.bestMse / step.bestMse > 1.05 && nextStep.avrgMse / step.avrgMse > 1.05) {
       return nextStep
     }
     info("fitting step")
@@ -106,7 +107,7 @@ class MutatingNetwork(weights: Seq[Edge], lRate: Double, params: MutationParamet
 
   def mutate(): MutatingNetwork = {
     try {
-      removeOneLayer().addOneLayer().addEdges().removeEdges()
+      return removeOneLayer().addOneLayer().addEdges().removeEdges()
     } catch {
       case e: Throwable => {
         error(e.getMessage)
@@ -208,23 +209,37 @@ class MutatingNetwork(weights: Seq[Edge], lRate: Double, params: MutationParamet
     * For every existing edge, remove this edge with the chance of params.removeEdgeChance,
     * iff all constraints to allow the removal are satisfied.
     * Constraints are:
-    *   - Every Node must have at least one outgoing edge
+    *   - Every Node must have at least one outgoing edge. Expect out node
+    *   - Every Node must have at least one incoming edge. Expect Inputs
     * @return A Network without the removed Edges
     */
   private def removeEdges(): MutatingNetwork = {
-    val newEdges = weights.dropWhile(e=>Math.random() < params.removeEdgeChance && weights.count(_.from.id == e.from.id) > 1)
+    val newEdges = removeOneEdge(Random.shuffle(weights), Seq.empty)
     new MutatingNetwork(newEdges, lRate, params, features)
   }
 
+  @tailrec
+  private def removeOneEdge(left: Seq[Edge], right: Seq[Edge]): Seq[Edge] = {
+    if (left.isEmpty) {
+      return right
+    }
+    val remainIf = (Math.random() > params.removeEdgeChance
+                  || left.count(_.from.id == left.head.from.id) == 1
+                  || left.count(_.to.id == left.head.to.id) == 1)
+    val remain = if (remainIf) Seq(left.head) else Seq.empty
+    removeOneEdge(left.tail, right ++ remain)
+  }
+
   private def newEdges(net: Network, from: Seq[Node], to: Seq[Node], chance: Double): Seq[Edge] = {
+
     val newEdges = from.flatMap(fromNode => to.flatMap(toNode => newEdgeIfNotExists(net, fromNode, toNode)))
-      .filter(_=>Math.random() < chance)
+      //.filter(_=>Math.random() < chance)
     newEdges
   }
 
   private def newEdgeIfNotExists(net: Network, from: Node, to: Node) : Option[Edge] = {
     if (!net.weights.exists(e=>e.from.id == from.id && e.to.id == to.id)) {
-      Option(Edge(from, to, Math.random()))
+      return Option(Edge(from, to, Math.random()))
     }
     Option.empty
   }
@@ -255,9 +270,15 @@ object PopulationSearch {
       for (i <- 0 until hiddenLayerVolume(inputs,hiddenLayers, hiddenLayerIndex)) yield Node(i + idSequence, Sigma(),
         Option(hiddenLayerIndex))
     }
-    val hiddenLayersList: Seq[Seq[Node]] = {
-      for (i <- 1 until hiddenLayers + 1) yield hiddenLayer(i, inputs + (i-1) * hiddenLayerVolume(inputs,hiddenLayers, i))
+    @tailrec
+    def makeHiddenLayers(hiddenLayers: Int, index: Int, idSeq: Int, acc: Seq[Seq[Node]]): Seq[Seq[Node]] = {
+      if (hiddenLayers < index) {
+        return acc
+      }
+      val layer = hiddenLayer(index, idSeq + 1)
+      makeHiddenLayers(hiddenLayers, index +1, layer.reverse.head.id , acc :+ layer)
     }
+    val hiddenLayersList = makeHiddenLayers(hiddenLayers, 1, inputs +1, Seq.empty)
     val out = Seq(Node(-1, output, Option(hiddenLayers + 1)))
     val layers: Seq[Seq[Node]] = inputNodes +: hiddenLayersList :+ out
     val weights = layers.flatMap(layer => {
@@ -281,7 +302,7 @@ object PopulationSearch {
     fullWeave(from,nextLayer).filter(_=>Math.random() > density)
   }
   def getRandomHiddenLayerVolume(inputs: Int): (Int, Int, Int) => Int = {
-    (a: Int, b: Int, c: Int) => (2 * Math.random() * inputs).toInt
+    (a: Int, b: Int, c: Int) => Math.ceil(2 * Math.random() * inputs).toInt
   }
 }
 

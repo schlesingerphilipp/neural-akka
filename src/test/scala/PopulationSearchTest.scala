@@ -4,6 +4,8 @@ import main.search._
 import main.util.{Logger, TestAdapter}
 import org.scalatest._
 
+import scala.annotation.tailrec
+
 object PopulationSearchTest extends FlatSpec {
 
 
@@ -29,17 +31,21 @@ class PopulationSearchTest extends FlatSpec with Matchers {
       PopulationSearch.fullWeave, Sigma())
   }
 
-  def getMutator(params: MutationParameters, pop: PopulationMember): MutatingNetwork= {
+  def asMutatingNetwork(params: MutationParameters, pop: PopulationMember): MutatingNetwork= {
     val network = pop.model.asInstanceOf[Network]
     val features = pop.features.asInstanceOf[NetworkFeatures]
     new MutatingNetwork(network.weights, network.lRate,  params, features)
   }
 
-  "A Population Search "should " not throw runtime exceptions and should yield a Model" in {
+  "The fitting algorithm "should " not throw runtime exceptions and should yield a Model" in {
     val data = ExampleData(5,5,5000)
     val search = new PopulationSearch(data, 10, 10)
     val model = search.fit()
-    model.getMSE(data) should equal(0) //hahah
+    logger.info(s"MSE: ${model.getMSE(data)}")
+    logger.info(s"mean target: ${data.data.map(_.target).sum / data.data.length}")
+    logger.info(s"largest target: ${data.data.map(_.target).min}")
+    logger.info(s"smallest target: ${data.data.map(_.target).max}")
+    assert(model.getMSE(data) > 0, "A zero mse, is problematic. maybe.") //hahah
   }
 
   "A Population initialized with size" should "have size" in {
@@ -55,22 +61,19 @@ class PopulationSearchTest extends FlatSpec with Matchers {
     actual = PopulationSearch.createPopulation(3,-10,2).members.size
     actual should equal(expected)
   }
-  "A FULL symetric spawn" should "be fully connected between each layer" in {
-    val net: Network = getNetwork
-    //5 inputs to 5 hidden to 1 out = 5 * 5 + 5 * 1 = 30 edges aka weights
-    net.weights.size should equal(30)
-    netTest.weights.map(testW =>
-      net.weights.exists(e => (e.from.id equals testW.from.id) && e.to.id.equals(testW.to.id)))
-      .reduce(_ & _) should equal(true)
+  "A FULL spawn" should "be fully connected between each layer" in {
+    val net: MutatingNetwork = asMutatingNetwork(MutationParameters(0,0,0,0), getPop(1))
+    val counts = net.features.layers.map(_.length)
+    @tailrec
+    def fullyConnectedCount(layerCounts: Seq[Int], acc: Int): Int = {
+      if (layerCounts.length < 2) {
+        return acc
+      }
+      fullyConnectedCount(layerCounts.tail, acc + layerCounts.head * layerCounts.tail.head)
+    }
+    net.weights.size should equal(fullyConnectedCount(counts, 0))
   }
-  "A full SYMETRIC spawn" should "have an equal amount of nodes in every hidden layer" in {
-    val net: Network = getNetwork
-    val hiddenOne = net.weights.filter(_.from.layer.get == 1).map(_.from).distinct
-    val hiddenTwo = net.weights.filter(_.from.layer.get == 2).map(_.from).distinct
-    hiddenOne.nonEmpty should equal(true)
-    hiddenTwo.nonEmpty should equal(true)
-    hiddenOne.length should equal(hiddenTwo.length)
-  }
+
   "Any spawned net" should "have a node with id -1, which is the output node" in {
     val net: Network = getNetwork
     net.weights.exists(_.to.id == -1) should equal(true)
@@ -79,16 +82,20 @@ class PopulationSearchTest extends FlatSpec with Matchers {
 
   "incrementLayerIndexBy  " should "increase the index by X amount" in {
     val layers = getPop(1).features.asInstanceOf[NetworkFeatures].layers
-    val increased = MutatingNetwork.incrementLayerIndexBy(layers, 1)
-    val layerSum= layers.flatMap(_.map(_.layer.getOrElse(0))).sum
-    val increasedSum = increased.flatMap(_.map(_.layer.getOrElse(0))).sum
-    assert(layerSum + layers.length == increasedSum, "the layerindex did not increase by 1 in each layer")
+    val X = 3
+    val increased = MutatingNetwork.incrementLayerIndexBy(layers, X)
+    for (i <- 0 until increased.length -1) {
+      for (node <- increased.apply(i)) {
+        //the layer index starts at 0 like a list.
+        assert(node.layer.getOrElse(-1) == i + X , "the node does not have the expected layer index")
+      }
+    }
   }
 
   "Adding a Layer " should "never result in disconnecting the outputnode, and add one layer" in {
     val pop = getPop(1)
     val params = MutationParameters(1.1, 0, 0, 0)
-    val mutator = getMutator(params, pop)
+    val mutator = asMutatingNetwork(params, pop)
     var mutated = mutator.mutate()
     var lastLayerCount = mutated.weights.map(_.to.layer).max.get
     for (i <- 0 until 100) {
@@ -103,7 +110,7 @@ class PopulationSearchTest extends FlatSpec with Matchers {
   "Removing a Layer " should "never result in disconnecting the outputnode, and remove one layer" in {
     val pop = getPop(100)
     val params = MutationParameters(0, 1, 0, 0)
-    val mutator = getMutator(params, pop)
+    val mutator = asMutatingNetwork(params, pop)
     var mutated = mutator.mutate()
     var lastLayerCount = mutated.weights.map(_.to.layer).max.get
     for (i <- 0 until 99) {
@@ -115,30 +122,98 @@ class PopulationSearchTest extends FlatSpec with Matchers {
     }
   }
 
-  "An interWeave " should "yield Edges" in {
-    //TODO
+  "Adding an Edge " should "never result in disconnecting any other node" in {
+    val pop = getPop(10)
+    def edgeIn(edge: Edge, weigths: Seq[Edge]): Boolean =  {
+      weigths.exists(e => e.from.id == edge.from.id && e.to.id == edge.to.id)
+    }
+    val params = MutationParameters(0, 0, 1, 0)
+    val mutator = asMutatingNetwork(params, pop)
+    var mutated = mutator.mutate()
+    var lastEdges = mutated.weights.filter(_=>true)
+    for (i <- 0 until 99) {
+      mutated = mutated.mutate()
+      for (e <- lastEdges) {
+        assert(edgeIn(e, mutated.weights), "previously existing edge is gone")
+      }
+      lastEdges = mutated.weights.filter(_=>true)
+    }
+  }
 
+  it should "never add an already existing edge" in {
+    val pop = getPop(100)
+    val params = MutationParameters(0, 0, 1, 0)
+    val mutator = asMutatingNetwork(params, pop)
+    val withLessEdges = new MutatingNetwork(mutator.weights.filter(_=>Math.random() > 0.5), mutator.lRate, params, mutator.features)
+    val lastEdges = withLessEdges.weights
+    val mutated = withLessEdges.mutate()
+    val newEdges = mutated.weights.filter(edge => !lastEdges.exists(e => e.from.id == edge.from.id && e.to.id == edge.to.id))
+    assert(lastEdges.length + newEdges.length  == mutated.weights.length, "There was an unexpected number of new edges")
   }
-  "A symetricWeave " should "yield a Sequence of node tuples" in {
-    //TODO
 
+  it should "add some edges" in {
+    val pop = getPop(100)
+    val params = MutationParameters(0, 0, 1, 0)
+    val mutator = asMutatingNetwork(params, pop)
+    val withLessEdges = new MutatingNetwork(mutator.weights.filter(_=>Math.random() > 0.5), mutator.lRate, params, mutator.features)
+    val lastEdges = withLessEdges.weights
+    val mutated = withLessEdges.mutate()
+    assert(lastEdges.length < mutated.weights.length, "After adding edges, there should be more edges than before")
   }
-  "A symetricWeave of 5 nodes from 2 o 4" should " yield 3 Node tuples, where node 2,3,4 are members" in {
-    //TODO
 
+  "Removing an Edge to the output node " should "not be possible" in {
+    val pop = getPop(100)
+    val params = MutationParameters(0, 0, 0, 1)
+    val mutator = asMutatingNetwork(params, pop)
+    def edgesToOut(net: Network): Int = {
+      net.weights.count(_.to.id == -1)
+    }
+    val mutated = mutator.mutate()
+    assert(edgesToOut(mutated) == edgesToOut(mutator), "Unexpected number of edges to out")
   }
-  "In a fullSymetricSpawn with 3 hidden layers, 5 inputs and 1 output, there  " should "be 15 * 5 + 1 = 76 Edges " in {
-    //TODO
 
+  //TODO: Check if nodes in layers equal nodes in edges
+
+  "Removing as many edges as possible " should "not remove a single node" in {
+    val pop = getPop(100)
+    val params = MutationParameters(0, 0, 0, 1)
+    val mutator = asMutatingNetwork(params, pop)
+    val mutated = mutator.mutate()
+    for (node <- mutator.features.layers.flatten) {
+      assert(mutated.weights.exists(e => e.from.id == node.id || e.to.id == node.id), s"Node ${node} was not in mutated")
+    }
   }
-  "A Population initialized with size" should "have size after mixing with other population" in {
-    //TODO implement method
+
+  it should "always leave each node with one outgoing edge" in {
+    val pop = getPop(100)
+    val params = MutationParameters(0, 0, 0, 1)
+    val mutator = asMutatingNetwork(params, pop)
+    val mutated = mutator.mutate()
+    for (node <- mutator.features.layers.flatten) {
+      assert(mutated.weights.exists(_.from.id == node.id || node.id == -1), s"Node ${node} has no out going edge")
+    }
   }
-  "A PopulationSearch" should "decrease the error" in {
-    //TODO implement search
+  it should "always leave each node with at least one incoming edge" in {
+    val pop = getPop(100)
+    val params = MutationParameters(0, 0, 0, 1)
+    val mutator = asMutatingNetwork(params, pop)
+    val mutated = mutator.mutate()
+    for (node <- mutator.features.layers.flatten) {
+      assert(mutated.weights.exists(_.to.id == node.id || node.function.isInstanceOf[Input]), s"Node ${node} has no out going edge")
+    }
   }
-  "A PopulationSearch" should " be able to produce one prediction" in {
-    //TODO implement search
+
+  "All layers of a spawned net" should "have at least one node" in {
+    val pop = asMutatingNetwork(MutationParameters(0,0,0,0), getPop(100))
+    val emptyLayers = pop.features.layers.count(_.length < 1)
+    assert(emptyLayers == 0, s"There were ${emptyLayers} Empty layers in ${pop.features.layers.length} layers over all")
+  }
+
+  "After any mutation the network " should "have at least one node in each layer" in {
+    val pop = asMutatingNetwork(MutationParameters(1,1,1,1), getPop(100))
+    val mutated = pop.mutate()
+    val emptyLayers = mutated.features.layers.count(_.length < 1)
+    assert(emptyLayers == 0, s"There were ${emptyLayers} Empty layers in ${mutated.features.layers.length} layers over all")
   }
 
 }

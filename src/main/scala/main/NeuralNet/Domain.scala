@@ -47,12 +47,12 @@ class Network(val weights: Seq[Edge], var lRate: Double)(implicit l: Logger) ext
     }
     val nextMse = getMSE(data)
     val nextImpro = (lastMse - nextMse) / lastMse
-    debug(s"Improvement: ${nextImpro}")
+    //debug(s"Improvement: ${nextImpro}")
     trainRec(data, minimumImprovementThreshold, nextImpro, nextMse, counter + 1, learnFromData(data.data, weights))
   }
 
   override def train(data: Data, minimumImprovementThreshold: Double): Model= {
-    new Network(trainRec(data, minimumImprovementThreshold, 0, Double.MaxValue, 0, this.weights), lRate)
+    new Network(trainRec(data, minimumImprovementThreshold, 1, Double.MaxValue, 0, this.weights), lRate)
   }
 
   private def updatedWeights(input:Seq[Double], target: Double, weights: Seq[Edge]): Seq[Edge] = {
