@@ -1,4 +1,3 @@
-import main.NeuralNet.{Network, _}
 import main.data.ExampleData
 import main.search._
 import main.util.{Logger, TestAdapter}
@@ -10,14 +9,15 @@ object PopulationSearchTest extends FlatSpec {
 
 
 }
+/**
 class PopulationSearchTest extends FlatSpec with Matchers {
   implicit val logger = Logger(Option(new TestAdapter()))
 
   val inputs = Seq(Node(0, Input()), Node(1, Input()),Node(2, Input()),Node(3, Input()),Node(4, Input()))
   val hidden = Seq(Node(5, Sigma()), Node(6, Sigma()),Node(7, Sigma()),Node(8, Sigma()), Node(9, Sigma()))
   val out = Seq(Node(-1, Sum()))
-  val edgesInputHiddenOne: Seq[Edge] = (for (i <- 0 until 5) yield  for (j <- 0 until 5) yield Edge(inputs.apply(i), hidden.apply(j), Math.random())).flatten
-  val edgesHiddenOneOut: Seq[Edge] = for (i <- 0 until 5) yield Edge(hidden.apply(i), out.apply(0), Math.random())
+  val edgesInputHiddenOne: Seq[Edge_] = (for (i <- 0 until 5) yield  for (j <- 0 until 5) yield Edge_(inputs.apply(i), hidden.apply(j), Math.random())).flatten
+  val edgesHiddenOneOut: Seq[Edge_] = for (i <- 0 until 5) yield Edge_(hidden.apply(i), out.apply(0), Math.random())
   val netTest = new Network(edgesInputHiddenOne ++ edgesHiddenOneOut, 1)
 
 
@@ -37,14 +37,87 @@ class PopulationSearchTest extends FlatSpec with Matchers {
     new MutatingNetwork(network.weights, network.lRate,  params, features)
   }
 
+  def testForCyclesWithParameters(params: MutationParameters, mutations: Int): Unit = {
+    @tailrec
+    def hasCycle(pathes: Seq[Seq[Int]], network: Network): Boolean = {
+      for (i <- 1 until 10)
+      if (pathes.length > Math.pow(10, i)) {
+        logger.info(s"More than ${Math.pow(10, i)}")
+      }
+      val longerPathes: Seq[Seq[Seq[Int]]] = pathes.map(p=>{
+        val nextSteps = network.weights.filter(e=> e.from.id == p.last).map(_.to.id)
+        nextSteps.map(i => p :+ i)
+      })
+      val _hasCycle = pathes.exists(p=>p.size != p.toSet.size)
+      if (_hasCycle) {
+        return true
+      }
+      if (longerPathes.isEmpty) {
+        return false
+      }
+      return hasCycle(longerPathes.flatten, network)
+    }
+    val pop = getPop(5)
+    var mutated = asMutatingNetwork(params, pop).mutate()
+    for (i <- 0 until mutations) {
+      mutated = mutated.mutate()
+      val inputs = mutated.weights.filter(_.from.function.isInstanceOf[Input])
+      assert(!hasCycle(inputs.map(e => e.from.id).distinct.map(Seq(_)), mutated),
+        s"${params.addLayerChance}, ${params.removeLayerChance}, " +
+          s"${params.addEdgeChance}, ${params.removeEdgeChance}")
+    }
+  }
+
+  "Cycles in the network" should "not exist with mutationparameters 0.0, 0.0, 0.0, 1" in {
+    testForCyclesWithParameters(MutationParameters(0.0, 0.0, 0.0, 1), 10)
+  }
+  it should "not exist with mutationparameters 0.0, 0.0, 1, 0.0" in {
+    testForCyclesWithParameters(MutationParameters(0.0, 0.0, 1, 0.0), 10)
+  }
+    it should "not exist with mutationparameters 0.0, 1, 0.0, 0.0" in {
+      testForCyclesWithParameters(MutationParameters(0.0, 1, 0.0, 0.0), 10)
+    }
+    it   should "not exist with mutationparameters 1, 0.0, 0.0, 0.0" in {
+      testForCyclesWithParameters(MutationParameters(1, 0.0, 0.0, 0.0), 10)
+    }
+    it   should "not exist with mutationparameters 0.5, 0.5, 0.0, 0.0" in {
+      testForCyclesWithParameters(MutationParameters(0.5, 0.5, 0.0, 0.0), 10)
+    }
+    it     should "not exist with mutationparameters 0.5, 0.0, 0.5, 0.0" in {
+      testForCyclesWithParameters(MutationParameters(0.5, 0.0, 0.5, 0.0), 10)
+    }
+    it      should "not exist with mutationparameters 0.0, 0.5, 0.5, 0.0" in {
+      testForCyclesWithParameters(MutationParameters(0.0, 0.5, 0.5, 0.0), 10)
+    }
+    it        should "not exist with mutationparameters 0.5, 0.0, 0.0, 0.5" in {
+      testForCyclesWithParameters(MutationParameters(0.5, 0.0, 0.0, 0.5), 10)
+    }
+    it          should "not exist with mutationparameters 0.0, 0.5, 0.0, 0.5" in {
+      testForCyclesWithParameters(MutationParameters(0.0, 0.5, 0.0, 0.5), 10)
+    }
+    it            should "not exist with mutationparameters 0.0, 0.0, 0.5, 0.5" in {
+      testForCyclesWithParameters(MutationParameters(0.0, 0.0, 0.5, 0.5), 10)
+    }
+    it              should "not exist with mutationparameters 0.0, 0.5, 0.5, 0.5" in {
+      testForCyclesWithParameters(MutationParameters(0.0, 0.5, 0.5, 0.5), 10)
+    }
+    it                should "not exist with mutationparameters 0.5, 0.0, 0.5, 0.5" in {
+      testForCyclesWithParameters(MutationParameters(0.5, 0.0, 0.5, 0.5), 10)
+    }
+    it                  should "not exist with mutationparameters 0.5, 0.5, 0.0, 0.5" in {
+      testForCyclesWithParameters(MutationParameters(0.5, 0.5, 0.0, 0.5), 10)
+    }
+    it                    should "not exist with mutationparameters 0.5, 0.5, 0.5, 0.0" in {
+      testForCyclesWithParameters(MutationParameters(0.5, 0.5, 0.5, 0.0), 10)
+    }
+    it should "not exist with mutationparameters 0.5, 0.5, 0.5, 0.5" in {
+      testForCyclesWithParameters(MutationParameters(0.5, 0.5, 0.5, 0.5), 10)
+    }
+
   "The fitting algorithm "should " not throw runtime exceptions and should yield a Model" in {
     val data = ExampleData(5,5,5000)
-    val search = new PopulationSearch(data, 10, 10)
+    val search = new PopulationSearch(data, 10, 1)
     val model = search.fit()
-    logger.info(s"MSE: ${model.getMSE(data)}")
-    logger.info(s"mean target: ${data.data.map(_.target).sum / data.data.length}")
-    logger.info(s"largest target: ${data.data.map(_.target).min}")
-    logger.info(s"smallest target: ${data.data.map(_.target).max}")
     assert(model.getMSE(data) > 0, "A zero mse, is problematic. maybe.") //hahah
   }
 
@@ -124,7 +197,7 @@ class PopulationSearchTest extends FlatSpec with Matchers {
 
   "Adding an Edge " should "never result in disconnecting any other node" in {
     val pop = getPop(10)
-    def edgeIn(edge: Edge, weigths: Seq[Edge]): Boolean =  {
+    def edgeIn(edge: Edge_, weigths: Seq[Edge_]): Boolean =  {
       weigths.exists(e => e.from.id == edge.from.id && e.to.id == edge.to.id)
     }
     val params = MutationParameters(0, 0, 1, 0)
@@ -217,3 +290,4 @@ class PopulationSearchTest extends FlatSpec with Matchers {
   }
 
 }
+**/
