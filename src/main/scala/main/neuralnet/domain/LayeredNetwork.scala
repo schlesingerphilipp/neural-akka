@@ -1,6 +1,6 @@
 package main.neuralnet.domain
 
-import main.data.{Data, DataPoint}
+import main.data.DataPoint
 
 import scala.annotation.tailrec
 
@@ -8,7 +8,7 @@ case class LayeredNetwork(layers: Seq[Layer]) extends Model {
 
   override def predict(input: Seq[Double]): Double = {
     val ins = mapInputToInputLayer(input, layers.head)
-    val nodeValues = getAllNodeValues(input)
+    val nodeValues: Map[Int, Double] = getAllNodeValues(input)
     // Node with id == -1 is the output node
     nodeValues.apply(-1)
   }
@@ -45,7 +45,12 @@ case class LayeredNetwork(layers: Seq[Layer]) extends Model {
   }
 
   private def mapLayerOutsToNextLayer(layerOuts: Map[Int,Double], nextLayer: Layer): Map[Edge, Double] = {
-    nextLayer.inputWeights.keys.map(edge => edge -> layerOuts.apply(edge.to)).toMap
+    //try {
+      nextLayer.inputWeights.keys.map(edge => edge -> layerOuts.apply(edge.from)).toMap
+    //}
+    //catch  {
+    //  case _: Throwable => Map.empty
+    //}
   }
 
   override def train(data: Seq[DataPoint]): Model = {
@@ -63,8 +68,9 @@ case class LayeredNetwork(layers: Seq[Layer]) extends Model {
 
   private def backPropagation(input: Seq[Double], target: Double, lRate: Double): LayeredNetwork = {
     val nodeValues = getAllNodeValues(input)
-    val nodeDeltas: Map[Int, Double] = getAllDeltaE(layers.reverse.head, layers.reverse.tail, nodeValues, target, Map.empty)
-    new LayeredNetwork(layers.map(updateLayer(_, nodeDeltas, nodeValues, target, lRate)))
+    val nodeDeltas: Map[Int, Double] = getAllDeltaE(Option.empty, layers.reverse.head, layers.reverse.tail, nodeValues,
+      target, Map.empty)
+    LayeredNetwork(layers.map(updateLayer(_, nodeDeltas, nodeValues, target, lRate)))
   }
 
   private def updateLayer(layer: Layer, nodeDeltas: Map[Int, Double], nodeValues : Map[Int, Double], target: Double,
@@ -74,24 +80,24 @@ case class LayeredNetwork(layers: Seq[Layer]) extends Model {
       val newWeight = edgeWeight._2 + lRate * delta
       (Edge(edgeWeight._1.from, edgeWeight._1.to), newWeight)
     })
-    new Layer(layer.nodes, newWeights)
+    Layer(layer.nodes, newWeights)
   }
 
   @tailrec
-  private def getAllDeltaE(currentLayer: Layer, otherLayers: Seq[Layer], allValues: Map[Int, Double], target: Double,
+  private def getAllDeltaE(previous: Option[Layer], currentLayer: Layer, otherLayers: Seq[Layer], allValues: Map[Int, Double], target: Double,
                            accumulator: Map[Int, Double]): Map[Int, Double] = {
-    val nextAccumulator = currentLayer.nodes.map(getNodeDeltaE(_, currentLayer, accumulator, target, allValues))
+    val nextAccumulator = currentLayer.nodes.map(getNodeDeltaE(_, currentLayer, previous,  accumulator, target, allValues))
       .toMap ++ accumulator
     if (otherLayers.isEmpty) {
       return nextAccumulator
     }
-    getAllDeltaE(otherLayers.head, otherLayers.tail, allValues, target, nextAccumulator)
+    getAllDeltaE(Option(currentLayer), otherLayers.head, otherLayers.tail, allValues, target, nextAccumulator)
   }
 
-  private def getNodeDeltaE(node: ValueNode, currentLayer: Layer, earlierDeltas: Map[Int, Double],
+  private def getNodeDeltaE(node: ValueNode, currentLayer: Layer, nextLayer: Option[Layer], earlierDeltas: Map[Int, Double],
                             target: Double, allValues: Map[Int, Double]): (Int, Double) = {
-    val edgesToNode = currentLayer.inputWeights.filter(w => w._1.to == node.id).keys.toSeq
-    val toNodeDeltas: Seq[Double] = edgesToNode.map(edge => earlierDeltas.apply(edge.from))
+    val edgesFromNode = nextLayer.map(_.inputWeights.filter(w => w._1.from == node.id)).getOrElse(Map.empty).keys.toSeq
+    val toNodeDeltas: Seq[Double] = edgesFromNode.map(edge => earlierDeltas.apply(edge.to))
     (node.id, node.deltaE(allValues(node.id), target, toNodeDeltas))
   }
 
@@ -104,7 +110,7 @@ case class LayeredNetwork(layers: Seq[Layer]) extends Model {
 
 case class Layer(nodes: Seq[ValueNode], inputWeights: Map[Edge, Double]) {
   def getOuts(ins: Map[Edge, Double]): Map[Int,Double] = {
-    nodes.map(node => (node.id, node.function.getValue(mapInEdgesToValues(ins, node.id)))).toMap
+    nodes.map(node => (node.id, node.getOut(inputWeights, ins))).toMap
   }
 
   def mapInEdgesToValues(ins: Map[Edge, Double], id: Int): Seq[Value] = {
@@ -113,6 +119,12 @@ case class Layer(nodes: Seq[ValueNode], inputWeights: Map[Edge, Double]) {
 }
 
 case class ValueNode(function: Function, id: Int)  {
+
+  def getOut(inputWeights: Map[Edge, Double], inputValues: Map[Edge, Double]): Double = {
+    val values: Seq[Value] = inputWeights.filter(_._1.to == id)
+      .map(weight => Value(weight._2, inputValues.apply(weight._1))).toSeq
+    function.getValue(values)
+  }
 
   def deltaE(out: Double, target: Double, fromDeltaE: Seq[Double]): Double = {
     if (this.id == -1) { // OutputNode has id == -1

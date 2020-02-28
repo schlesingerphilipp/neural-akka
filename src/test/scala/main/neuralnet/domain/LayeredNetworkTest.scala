@@ -5,7 +5,7 @@ import org.scalatest._
 
 class LayeredNetworkTest extends FlatSpec with Matchers {
   "A Training " should "decrease the MSE" in {
-    val net = LayeredNetworkGenerationService.generateModel(ModelParameters(3, 2, 3, 6))
+    val net = GenerationService.generateModel(ModelParameters(3, 2, 3, 6))
     val data = ExampleData(Math.random(), 3, 100)
     val (training, test) = data.getTrainingTestSplit(0.7)
     val trainedNet = net.train(training)

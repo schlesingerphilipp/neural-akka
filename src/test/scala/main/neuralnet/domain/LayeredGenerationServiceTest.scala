@@ -8,7 +8,7 @@ class LayeredGenerationServiceTest extends FlatSpec {
 
   "generateInputLayer" should "yield an input layer" in {
     val inputs: Int = 3
-    val inputLayer: Layer = LayeredNetworkGenerationService.generateInputLayer(inputs)
+    val inputLayer: Layer = GenerationService.generateInputLayer(inputs)
     assert(inputLayer.nodes.length == 3, "Unexpected node count.")
     assert(inputLayer.inputWeights.size == 3, "Unexpected weight count.")
     assert(inputLayer.inputWeights.count(_._2 == 1.0) == inputs, "Not all weights were 1.0.")
@@ -17,10 +17,10 @@ class LayeredGenerationServiceTest extends FlatSpec {
 
 
   "generateHiddenLayer" should "yield an hidden layer" in {
-    val previousLayer: Layer = LayeredNetworkGenerationService.generateInputLayer(3)
+    val previousLayer: Layer = GenerationService.generateInputLayer(3)
     val nodeCount: Int = 3
     val idCounter: Int = 4
-    val layer = LayeredNetworkGenerationService.generateHiddenLayer(previousLayer, nodeCount, idCounter)
+    val layer = GenerationService.generateHiddenLayer(previousLayer, nodeCount, idCounter)
     assert(layer.nodes.length == 3, "Unexpected number of nodes")
     assert(layer.inputWeights.size == previousLayer.nodes.length * layer.nodes.length, "Unexpected edge count.")
     assert(layer.inputWeights.forall(_._1.from != null), "At least one from edges is null")
@@ -30,9 +30,9 @@ class LayeredGenerationServiceTest extends FlatSpec {
   }
 
   "generateOutputLayer" should "yield an hidden layer" in {
-    val previousLayer: Layer = LayeredNetworkGenerationService.generateInputLayer(3)
+    val previousLayer: Layer = GenerationService.generateInputLayer(3)
 
-    val outLayer: Layer = LayeredNetworkGenerationService.generateOutputLayer(previousLayer);
+    val outLayer: Layer = GenerationService.generateOutputLayer(previousLayer);
     assert(outLayer.nodes.length == 1, "Unexpected node count.")
     assert(outLayer.inputWeights.size == previousLayer.nodes.length * outLayer.nodes.length, "Unexpected edge count.")
     assert(outLayer.nodes.forall(_.function.isInstanceOf[Sum]), "Not all out nodes are sum functions")
@@ -41,8 +41,8 @@ class LayeredGenerationServiceTest extends FlatSpec {
 
   "generateInputWeights" should "yield expected connections" in {
     val nodes = Seq(ValueNode(Sigma(), 5), ValueNode(Sigma(), 6))
-    val previous = LayeredNetworkGenerationService.generateInputLayer(5);
-    val actual: Map[Edge, Double] = LayeredNetworkGenerationService.generateInputWeights(nodes, previous)
+    val previous = GenerationService.generateInputLayer(5);
+    val actual: Map[Edge, Double] = GenerationService.generateInputWeights(nodes, previous)
     val expected = Map(Edge(0,5) -> 0.0, Edge(1,5) -> 0.0, Edge(2,5) -> 0.0, Edge(3,5) -> 0.0, Edge(4,5) -> 0.0,
       Edge(0,6) -> 0.0, Edge(1,6) -> 0.0, Edge(2,6) -> 0.0, Edge(3,6) -> 0.0, Edge(4,6) -> 0.0 )
     assert(expected.keys.forall(actual.contains), "Not all Edges in Map")
@@ -51,7 +51,7 @@ class LayeredGenerationServiceTest extends FlatSpec {
   "generateModel" should "generate a model according to parameters" in {
     val (inputs, hiddenLayers, min, max) = (3,3,3,5)
     val params = ModelParameters(inputs, hiddenLayers, min, max)
-    val model: LayeredNetwork = LayeredNetworkGenerationService.generateModel(params).asInstanceOf[LayeredNetwork]
+    val model: LayeredNetwork = GenerationService.generateModel(params).asInstanceOf[LayeredNetwork]
     assert(model.layers.length == 1 + hiddenLayers + 1, "There are more or less layers than expected")
     assert(model.layers.head.nodes.forall(_.function.isInstanceOf[Input]), "Head of layers should be the input " +
       "layer, where all nodes functions should be input functions")
