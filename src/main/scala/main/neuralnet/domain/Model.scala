@@ -1,28 +1,25 @@
 package main.neuralnet.domain
 
-import main.data.{DataPoint}
-
-trait Model {
-  def predict(input: Seq[Double]): Double
-  def train(data: Seq[DataPoint]): Model
-  def getMSE(data: Seq[DataPoint]): Double
-}
 
 trait Function {
   def derivative(out: Double): Double
   def getValue(input: Seq[Value]): Double
 }
-case class Sum() extends Function {
+abstract class Linear extends Function {
   override def derivative(out: Double): Double = 1
+}
+case class Sum() extends Linear {
   override def getValue(input: Seq[Value]): Double = input.map(i=> i.weight * i.feature).sum
 }
-case class Input() extends Function {
-  override def derivative(out: Double): Double = 1
+case class Input() extends Linear {
   override def getValue(input: Seq[Value]): Double = input.map(_.feature).sum
 }
 
-case class Sigma() extends Function {
+abstract class Logarithmic() extends Function {
   override def derivative(out: Double): Double = out* (1 - out)
+}
+
+case class Sigma() extends Logarithmic {
   override def getValue(input: Seq[Value]): Double = {
     val z = input.map(i=> i.weight * i.feature).sum
     DoublePrecision.sigma(1 / (1+ Math.pow(Math.E, -1 * z)))

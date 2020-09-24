@@ -1,9 +1,7 @@
 package main.neuralnet.domain
 
-
 object MutationService {
   val random = new scala.util.Random
-
   def mutateDefinitionFrom(model: LayeredNetwork, mutationParameters: MutationParameters): Seq[Int] = {
     val inputs = Seq(model.layers.head.nodes.length)
     val hidden = model.layers.slice(1,model.layers.length -1)
@@ -23,11 +21,11 @@ object MutationService {
     Mutations(1 + addLayer + removeLayer, addNode + removeNode)
   }
 
-  def mutate(model: Model, mutationParameters: MutationParameters): Model = {
+  def mutate(model: LayeredNetwork, mutationParameters: MutationParameters): LayeredNetwork = {
     model match {
       case l: LayeredNetwork => {
         val layerDefinition: Seq[Int] = mutateDefinitionFrom(l, mutationParameters)
-        GenerationService.generateFromDefinition(layerDefinition)
+        new GenerationService().generateFromDefinition(layerDefinition)
       }
     }
   }
