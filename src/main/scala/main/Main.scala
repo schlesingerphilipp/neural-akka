@@ -40,7 +40,5 @@ object Main extends App {
     val after = trained.getMSE(dp.load())
     println("Before: %s".format(before))
     println("After: %s".format(after))
-
-    val debug = "weed"
   }
 }
