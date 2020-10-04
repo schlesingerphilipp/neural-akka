@@ -12,7 +12,7 @@ object StreamingSearch {
     if (counter >= dp.numberOfRows * trainDataPart) {
       return model
     }
-    System.out.print("search step" + counter)
+    System.out.println("processed data: " + counter)
     val data = dp.load()
     trainUntil(model.train(data), dp, trainDataPart, counter + data.size)
   }

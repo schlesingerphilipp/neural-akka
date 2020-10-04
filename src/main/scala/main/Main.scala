@@ -35,7 +35,12 @@ object Main extends App {
       20)
     val modelParameters = new NextGenerationService().generateDefinition(modelDefinition)
     val model: NextLayeredNetwork = new NextGenerationService().generateModel(modelParameters)
+    val before = model.getMSE(dp.load())
     val trained = StreamingSearch.trainUntil(model, dp, 0.7, 0)
+    val after = trained.getMSE(dp.load())
+    println("Before: %s".format(before))
+    println("After: %s".format(after))
+
     val debug = "weed"
   }
 }

@@ -1,6 +1,7 @@
 package main.neuralnet.domain
 
 import jdk.jshell.spi.ExecutionControl.NotImplementedException
+import main.neuralnet.domain
 
 import scala.annotation.tailrec
 
@@ -19,9 +20,15 @@ case class NextLayeredNetwork(layerss: Seq[Layer])
   }
 
   def predict(dp: NextDataPoint): Double = {
-    val nodeValues: Map[Int, Double] = getAllNodeValues(dp)
+    val nodeValuesAndInputs: (Map[Int, Double], Map[Int, Seq[Value]]) = getAllNodeValues(dp)
     // Node with id == -1 is the output node
-    nodeValues.apply(-1)
+    nodeValuesAndInputs._1.apply(-1)
+  }
+
+  def getMSE(data: Seq[NextDataPoint]): Double = {
+    val predictions: Seq[(Double, Double)] = data.map(d => (predict(d), d.target))
+    val squareError = predictions.map(p => Math.pow(p._1 - p._2, 2)).sum
+    squareError / data.length
   }
 
   def train(data: Seq[NextDataPoint]): NextLayeredNetwork = {
@@ -37,14 +44,44 @@ case class NextLayeredNetwork(layerss: Seq[Layer])
     nextNetwork.trainStep(otherData.head, otherData.tail)
   }
 
-  protected final def backPropagation(input: NextDataPoint, lRate: Double): NextLayeredNetwork = {
-    val nodeValues = getAllNodeValues(input)
-    val nodeDeltas: Map[Int, Double] = getAllDeltaE(Option.empty, layers.reverse.head, layers.reverse.tail, nodeValues,
-      input.target, Map.empty)
-    NextLayeredNetwork(layers.map(updateLayer(_, nodeDeltas, nodeValues, input.target, lRate)))
+  def updateNodes(layer: Layer, nodeInputs: Map[Int, Seq[Value]], nodeDeltas: Map[Int, Double],
+                  nodeValues: Map[Int, Double]): Layer = {
+    val nodes = updateNodeFunctions(layer, nodeInputs, nodeDeltas, nodeValues)
+    layer match {
+      case _: InputLayer => InputLayer(nodes.map {
+        case in: InputNode => in
+      })
+      case _: SimpleLayer => SimpleLayer(nodes, layer.inputWeights)
+    }
   }
 
-  override def selectLayerClass(layer: Layer, newWeights: Map[Edge, Double]): Layer = {
+
+  def updateNodeFunctions(layer: Layer, nodeInputs: Map[Int, Seq[Value]], nodeDeltas: Map[Int, Double],
+                                nodeValues: Map[Int, Double]): Seq[ValuableNode] = {
+    layer.nodes.map(n => {
+      val updatedFunction: Function = n.function match {
+        case func: NextFunction =>
+          NextFunction(func.model.train(nodeInputs.apply(n.id), nodeValues.apply(n.id) - nodeDeltas.apply(n.id)))
+        case f: Function => f
+      }
+      n match {
+        case i: InputNode => InputNode(updatedFunction, i.id, i.inputId)
+        case v: ValueNode => ValueNode(updatedFunction, v.id)
+      }
+    })
+  }
+
+  protected final def backPropagation(input: NextDataPoint, lRate: Double): NextLayeredNetwork = {
+    val nodeValuesAndInputs = getAllNodeValues(input)
+    val nodeValues = nodeValuesAndInputs._1
+    val nodeInputs = nodeValuesAndInputs._2
+    val nodeDeltas: Map[Int, Double] = getAllDeltaE(Option.empty, layers.reverse.head, layers.reverse.tail, nodeValues,
+      input.target, Map.empty)
+    val updatedWeights = layers.map(updateLayer(_, nodeDeltas, nodeValues, input.target, lRate))
+    NextLayeredNetwork(updatedWeights.map(updateNodes(_, nodeInputs, nodeValues, nodeDeltas)))
+  }
+
+  override def applyWeightsUpdate(layer: Layer, newWeights: Map[Edge, Double]): Layer = {
     layer match {
       case in: InputLayer => in
       case _ => SimpleLayer(layer.nodes, newWeights)
@@ -57,9 +94,10 @@ case class NextLayeredNetwork(layerss: Seq[Layer])
     * @param input feature list
     * @return Map [nodeId -> nodeValue] of all nodes in the network
     */
-  def getAllNodeValues(dp: NextDataPoint): Map[Int, Double] = {
-    val edges = mapInputValues(layers.head, dp)
-    getAllNodeValuesStep(layers.head, layers.tail, edges, Map.empty)
+  def getAllNodeValues(dp: NextDataPoint): (Map[Int, Double], Map[Int, Seq[Value]]) = {
+    val nextLayerIns = mapInputValues(layers.head, dp)
+    val nextLayerValues = mapWeightsAndValues(nextLayerIns, layers.tail.head)
+    getAllNodeValuesStep(layers.head, layers.tail, nextLayerValues, Map.empty)
   }
 
   def mapInputValues(inputLayer: Layer, dp: NextDataPoint): Map[Edge, Double] = {
@@ -89,4 +127,5 @@ case class InputLayer(inputNodes: Seq[InputNode]) extends AbstractLayer(inputNod
 case class NextDataPoint(target: Double, features: Map[String, Seq[Double]])
 case class ExternalModel() {
   def predict(input: Seq[Double]): Double = ???
+  def train(input: Seq[Value], target: Double): ExternalModel = ???
 }

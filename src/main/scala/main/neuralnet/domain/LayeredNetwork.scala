@@ -9,10 +9,9 @@ import scala.annotation.tailrec
 case class LayeredNetwork(layerss: Seq[Layer]) extends AbstractLayeredNetwork(layerss) {
 
   def predict(input: Seq[Double]): Double = {
-    val ins = mapInputToInputLayer(input, layers.head)
-    val nodeValues: Map[Int, Double] = getAllNodeValues(input)
+    val nodeValuesAndInputs = getAllNodeValues(input)
     // Node with id == -1 is the output node
-    nodeValues.apply(-1)
+    nodeValuesAndInputs._1.apply(-1)
   }
 
   def getMSE(data: Seq[DataPoint]): Double = {
@@ -26,17 +25,17 @@ case class LayeredNetwork(layerss: Seq[Layer]) extends AbstractLayeredNetwork(la
     * @param input feature list
     * @return Map [nodeId -> nodeValue] of all nodes in the network
     */
-  def getAllNodeValues(input: Seq[Double]): Map[Int, Double] = {
-    val ins: Map[Edge, Double] = mapInputToInputLayer(input, layers.head)
+  def getAllNodeValues(input: Seq[Double]): (Map[Int, Double], Map[Int, Seq[Value]]) = {
+    val ins: Map[Int, Seq[Value]] = mapInputToInputLayer(input, layers.head)
     getAllNodeValuesStep(layers.head, layers.tail, ins, Map.empty)
   }
 
 
   protected final def backPropagation(input: Seq[Double], target: Double, lRate: Double): LayeredNetwork = {
-    val nodeValues = getAllNodeValues(input)
-    val nodeDeltas: Map[Int, Double] = getAllDeltaE(Option.empty, layers.reverse.head, layers.reverse.tail, nodeValues,
-      target, Map.empty)
-    LayeredNetwork(layers.map(updateLayer(_, nodeDeltas, nodeValues, target, lRate)))
+    val nodeValuesAndInputs = getAllNodeValues(input)
+    val nodeDeltas: Map[Int, Double] = getAllDeltaE(Option.empty, layers.reverse.head, layers.reverse.tail,
+      nodeValuesAndInputs._1, target, Map.empty)
+    LayeredNetwork(layers.map(updateLayer(_, nodeDeltas, nodeValuesAndInputs._1, target, lRate)))
   }
 
   def train(data: Seq[DataPoint]): LayeredNetwork = {
@@ -55,7 +54,7 @@ case class LayeredNetwork(layerss: Seq[Layer]) extends AbstractLayeredNetwork(la
 }
 
 trait Network {
-  def selectLayerClass(layer: Layer, newWeights: Map[Edge, Double]): Layer = {
+  def applyWeightsUpdate(layer: Layer, newWeights: Map[Edge, Double]): Layer = {
     SimpleLayer(layer.nodes, newWeights)
   }
 }
@@ -63,22 +62,28 @@ trait Network {
 abstract class AbstractLayeredNetwork(layerss: Seq[Layer]) extends Network{
   val layers = layerss
 
+  def mapWeightsAndValues(inputValues: Map[Edge, Double], nextLayer: Layer) : Map[Int, Seq[Value]] = {
+    nextLayer.nodes.map(n=> n.id -> nextLayer.inputWeights.filter(_._1.to == n.id)
+      .map(weight => Value(weight._2, inputValues.apply(weight._1))).toSeq).toMap
+  }
+
   @tailrec
-  protected final def getAllNodeValuesStep(currentLayer: Layer, otherLayers: Seq[Layer], ins: Map[Edge, Double],
-                                           accumulator: Map[Int, Double]): Map[Int, Double] = {
-    val layerOuts: Map[Int,Double] = currentLayer.getOuts(ins)
-    val nextAccumulator = accumulator ++ layerOuts
+  protected final def getAllNodeValuesStep(currentLayer: Layer, otherLayers: Seq[Layer], inputAccumulator: Map[Int, Seq[Value]],
+                                           valueAccumulator: Map[Int, Double]): (Map[Int, Double], Map[Int, Seq[Value]]) = {
+    val layerOuts: Map[Int,Double] = currentLayer.getOuts(inputAccumulator)
+    val nextValuesAccumulator = valueAccumulator ++ layerOuts
     if (otherLayers.isEmpty) {
-      return nextAccumulator
+      return (nextValuesAccumulator, inputAccumulator)
     }
-    val nextLayerIns = mapLayerOutsToNextLayer(layerOuts, otherLayers.head)
-    getAllNodeValuesStep(otherLayers.head, otherLayers.tail, nextLayerIns, nextAccumulator)
+    val nextLayerEdges = mapLayerOutsToNextLayer(layerOuts, otherLayers.head)
+    val nextLayerInputs = mapWeightsAndValues(nextLayerEdges, otherLayers.head)
+    getAllNodeValuesStep(otherLayers.head, otherLayers.tail, inputAccumulator ++ nextLayerInputs, nextValuesAccumulator)
   }
 
 
-  protected def mapInputToInputLayer(input: Seq[Double], inputLayer: Layer): Map[Edge, Double] = {
+  protected def mapInputToInputLayer(input: Seq[Double], inputLayer: Layer): Map[Int, Seq[Value]] = {
     //The ids of the input nodes match the indices of the input Sequence
-    inputLayer.inputWeights.keys.map(edge => edge -> input.apply(edge.to)).toMap
+    inputLayer.inputWeights.keys.map(edge => edge.to -> Seq(Value(1,input.apply(edge.to)))).toMap
   }
 
   protected def mapLayerOutsToNextLayer(layerOuts: Map[Int,Double], nextLayer: Layer): Map[Edge, Double] = {
@@ -92,7 +97,7 @@ abstract class AbstractLayeredNetwork(layerss: Seq[Layer]) extends Network{
       val newWeight = edgeWeight._2 + lRate * delta
       (Edge(edgeWeight._1.from, edgeWeight._1.to), newWeight)
     })
-    selectLayerClass(layer, newWeights)
+    applyWeightsUpdate(layer, newWeights)
   }
 
   @tailrec
@@ -117,14 +122,14 @@ abstract class AbstractLayeredNetwork(layerss: Seq[Layer]) extends Network{
 trait Layer {
   val nodes: Seq[ValuableNode]
   val inputWeights: Map[Edge, Double]
-  def getOuts(ins: Map[Edge, Double]): Map[Int,Double]
+  def getOuts(ins: Map[Int, Seq[Value]]): Map[Int,Double]
   def mapInEdgesToValues(ins: Map[Edge, Double], id: Int): Seq[Value]
 }
 abstract class AbstractLayer(nodess: Seq[ValuableNode], inputWeightss: Map[Edge, Double]) extends Layer{
   val nodes = nodess
   val inputWeights: Map[Edge, Double] = inputWeightss
-  def getOuts(ins: Map[Edge, Double]): Map[Int,Double] = {
-    nodes.map(node => (node.id, node.getOut(inputWeights, ins))).toMap
+  def getOuts(ins: Map[Int, Seq[Value]]): Map[Int,Double] = {
+    nodes.map(node => node.id -> node.getOut(ins.apply(node.id))).toMap
   }
 
   def mapInEdgesToValues(ins: Map[Edge, Double], id: Int): Seq[Value] = {
@@ -134,12 +139,10 @@ abstract class AbstractLayer(nodess: Seq[ValuableNode], inputWeightss: Map[Edge,
 case class SimpleLayer(nodess: Seq[ValuableNode], inputWeightss: Map[Edge, Double]) extends AbstractLayer(nodess, inputWeightss)
 
 abstract class ValuableNode(func: Function, idd: Int) {
-  val id = idd
-  val function = func
-  def getOut(inputWeights: Map[Edge, Double], inputValues: Map[Edge, Double]): Double = {
-    val values: Seq[Value] = inputWeights.filter(_._1.to == id)
-      .map(weight => Value(weight._2, inputValues.apply(weight._1))).toSeq
-    function.getValue(values)
+  val id: Int = idd
+  val function: Function = func
+  def getOut(inputValues: Seq[Value]): Double = {
+    function.getValue(inputValues)
   }
 
   def deltaE(out: Double, target: Double, fromDeltaE: Seq[Double]): Double = {
